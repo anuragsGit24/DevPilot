@@ -1,6 +1,6 @@
 # DevPilot — AI-Powered SDLC Co-Pilot
 
-**Status:** Documentation blueprint only. No application implementation, test results, sponsor approval, or production readiness is implied. Primary source: `DevPilot_UseCase_v1.0_Standard`.
+**Status:** Documentation blueprint plus an early frontend prototype and Phase P1 backend foundation. The backend is not production-ready and has no completed authentication, authorization, ingestion, AI provider, or frontend API integration yet. No sponsor approval or production readiness is implied. Primary source: `DevPilot_UseCase_v1.0_Standard`.
 
 ## Overview
 DevPilot is a human-in-the-loop SDLC assistant that transforms public/synthetic business requirements into traceable user stories, acceptance criteria, test cases, OpenAPI specifications, architecture recommendations, and sprint plans. It also includes prompt versioning, baseline evaluation, an open-source case study, dashboard, exports, authentication/RBAC, and a contextual assistant.
@@ -19,6 +19,7 @@ DevPilot is a human-in-the-loop SDLC assistant that transforms public/synthetic 
 Technology choices are proposed because the source document allows selection. Preserve future repository decisions and record changes in `docs/architecture/ADRS.md`.
 
 ## Documentation map
+- [Backend connection guide](docs/BACKEND_CONNECTION_GUIDE.md)
 - [Charter](docs/PROJECT_CHARTER.md) · [PRD](docs/PRD.md) · [Traceability](docs/REQUIREMENTS_TRACEABILITY.md)
 - [Roadmap](docs/IMPLEMENTATION_ROADMAP.md) · [Agile plan](docs/AGILE_PLAN.md)
 - [Solution architecture](docs/architecture/SOLUTION_ARCHITECTURE.md) · [HLD](docs/architecture/HLD.md) · [LLD](docs/architecture/LLD.md) · [Data model](docs/architecture/DATA_MODEL.md)
@@ -28,7 +29,7 @@ Technology choices are proposed because the source document allows selection. Pr
 - Operations: [Test strategy](docs/testing/TEST_STRATEGY.md), [Test plan](docs/testing/TEST_PLAN.md), [Security checklist](docs/SECURITY_CHECKLIST.md), [CI/CD](docs/DEVOPS_AND_CICD.md), [Runbook](docs/OBSERVABILITY_AND_RUNBOOK.md), [Deployment](docs/DEPLOYMENT_GUIDE.md), [User guide](docs/USER_GUIDE.md), [Admin guide](docs/ADMIN_GUIDE.md), [Final deliverables](docs/DEMO_AND_FINAL_DELIVERABLES.md), [Contributing](CONTRIBUTING.md).
 
 ## Prerequisites for future implementation
-Git, pinned Python version, Node.js LTS, Docker Compose, PostgreSQL, selected vector store, and an approved model provider or local model. Create `.env` from `.env.example` when implementation begins; never commit secrets.
+Git, pinned Python version, Node.js LTS, Docker Compose, PostgreSQL, selected vector store, and an approved model provider or local model. The Phase P1 local stack is defined in `docker-compose.yml`; connection steps are in [the backend connection guide](docs/BACKEND_CONNECTION_GUIDE.md). Create `.env` from `.env.example` when implementation begins; never commit secrets.
 
 ## Targets to measure, not claims
 UI page load <2 s; non-AI API response <500 ms; standard artifact generation <30 s; dashboard render <3 s; ≥99% availability in test/demo. Record test conditions and results.
