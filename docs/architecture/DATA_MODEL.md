@@ -34,5 +34,20 @@ erDiagram
 ## Constraints and indexes
 Unique email; unique prompt version per template; unique artifact version per artifact. Index project/time for requirements, artifacts, evaluations, audit events; index foreign keys and generation status. Vector metadata includes project/source IDs, chunk index and content hash. Never trust UI-only project filtering.
 
+## Current supported implementation
+
+The current P1 implementation keeps generated artifact versions in
+`artifact_versions.payload` JSONB so each version remains immutable and can
+retain source requirement IDs. Flexible workspace records that do not yet need
+their own relational lifecycle are stored in `work_items`, keyed by
+`project_id` and `record_type`. Each work item has a creator, status, optional
+parent and source IDs, timestamps, and a JSONB payload. This covers source
+documents, requirements, stories, acceptance criteria, test cases, API
+specifications, architecture recommendations, sprints, prompts, evaluations,
+and assistant conversations without making browser storage canonical.
+
+`work_items` is supplementary to, not a replacement for, the relational
+project, membership, user, artifact-version, password-reset, and audit tables.
+
 ## Retention
 Define deletion and retention for source files, chat history and audit events before implementation. Do not log secrets. Vector index must be rebuildable from authorized canonical content.

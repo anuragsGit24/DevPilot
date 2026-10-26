@@ -4,9 +4,16 @@ import { useAuth } from '@/app/providers/AuthProvider';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { DEMO_USERS } from '@/mocks/seed-data/project-retail-banking';
 import { Lock, Mail, Eye, EyeOff, UserCheck, AlertCircle, ArrowRight, ShieldCheck, UserPlus } from 'lucide-react';
 import type { UserRole } from '@/types/domain';
+
+const DEMO_USERS = [
+  { id: 'demo-admin', name: 'Eleanor Vance', email: 'admin@devpilot.demo', role: 'admin' as UserRole },
+  { id: 'demo-pm', name: 'James Whitfield', email: 'pm@devpilot.demo', role: 'project_manager' as UserRole },
+  { id: 'demo-ba', name: 'Sarah Chen', email: 'ba@devpilot.demo', role: 'business_analyst' as UserRole },
+  { id: 'demo-dev', name: 'Marcus Rodriguez', email: 'dev@devpilot.demo', role: 'developer' as UserRole },
+  { id: 'demo-qa', name: 'Priya Sharma', email: 'qa@devpilot.demo', role: 'tester' as UserRole },
+];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -14,8 +21,8 @@ export function LoginPage() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('business_analyst');
-  const [email, setEmail] = useState('pm@devpilot.demo');
-  const [password, setPassword] = useState('demo123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +59,7 @@ export function LoginPage() {
     const targetUser = DEMO_USERS.find((u) => u.role === userRole);
     if (targetUser) {
       setEmail(targetUser.email);
-      setPassword('demo123');
+      setPassword(userRole === 'admin' ? 'admin123' : 'user123');
       setError(null);
     }
   };
@@ -77,10 +84,10 @@ export function LoginPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider">
               <span>Select Demo Persona</span>
-              <span className="text-2xs font-normal text-slate-400">Pre-fills credentials</span>
+              <span className="text-2xs font-normal text-slate-400">Development accounts only</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {DEMO_USERS.filter((u) => u.active).map((u) => (
+              {DEMO_USERS.map((u) => (
                 <button
                   key={u.id}
                   type="button"

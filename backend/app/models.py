@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -113,6 +113,37 @@ class ArtifactVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     artifact: Mapped[Artifact] = relationship(back_populates="versions")
+
+
+class WorkItem(Base):
+    """Project-scoped flexible records for non-artifact workspace workflows."""
+
+    __tablename__ = "work_items"
+    __table_args__ = (
+        Index("ix_work_items_project_type", "project_id", "record_type"),
+        Index("ix_work_items_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    record_type: Mapped[str] = mapped_column(String(80), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    payload: Mapped[dict] = mapped_column(JsonType, default=dict)
+    source_ids: Mapped[list] = mapped_column(JsonType, default=list)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("work_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project: Mapped[Project] = relationship()
+    parent: Mapped["WorkItem | None"] = relationship(remote_side=[id])
 
 
 class PasswordResetToken(Base):

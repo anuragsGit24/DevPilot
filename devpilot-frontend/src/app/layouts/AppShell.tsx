@@ -7,9 +7,16 @@ import { useAuth } from '@/app/providers/AuthProvider';
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
 
-  // If not authenticated in demo mode, redirect to login
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-sm text-slate-500">
+        Restoring your session...
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }

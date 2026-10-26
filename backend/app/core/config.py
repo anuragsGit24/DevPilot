@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     cloud_sql_connection_name: str | None = None  # e.g., "my-gcp-project:us-central1:devpilot-db"
     use_cloud_sql_auth_proxy: bool = False
 
+    demo_seed_enabled: bool = False
+    demo_admin_password: str = "change-me-demo-admin"
+    demo_user_password: str = "change-me-demo-user"
+
     model_config = SettingsConfigDict(
         env_prefix="DEVPILOT_",
         env_file=".env",
@@ -42,4 +46,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.demo_seed_enabled and settings.environment != "development":
+        raise ValueError("Demo seeding is only allowed when DEVPILOT_ENVIRONMENT=development.")
+    return settings

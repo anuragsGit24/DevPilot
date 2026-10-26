@@ -16,6 +16,7 @@ Never expose stack traces, SQL, internal filesystem paths, provider keys or secr
 | POST `/auth/password-reset/request`, `/auth/password-reset/confirm` | Verified reset |
 | GET `/me` | Current identity/role |
 | GET/POST `/projects`; GET/PATCH `/projects/{id}` | Project management |
+| GET/POST `/projects/{id}/work-items`; PATCH/DELETE `/projects/{id}/work-items/{item_id}` | Authorized persistence for flexible workspace records |
 | GET/POST `/projects/{id}/requirements` | List/create manual requirements |
 | POST `/projects/{id}/documents` | Upload and parse document |
 | GET/PATCH `/requirements/{id}` | Read/edit/tag requirement |

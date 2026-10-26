@@ -18,6 +18,11 @@ services:
   api:
     build:
       context: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+      - path: ./.env
+        required: false
     environment:
       DEVPILOT_ENVIRONMENT: development
       DEVPILOT_DATABASE_URL: postgresql+asyncpg://devpilot:devpilot@postgres:5432/devpilot
@@ -34,7 +39,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: sh -c "alembic upgrade head && if [ \"$$DEVPILOT_DEMO_SEED_ENABLED\" = \"true\" ]; then python -m app.seed; fi && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   devpilot-postgres-data:

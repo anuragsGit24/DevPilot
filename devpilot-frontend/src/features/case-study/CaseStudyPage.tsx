@@ -8,10 +8,23 @@ import {
   Clock, Shield, Award, Sparkles, AlertCircle,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { useAuth } from '@/app/providers/AuthProvider';
 
 export function CaseStudyPage() {
   const { caseStudy } = useProjectData();
+  const { isDemoMode } = useAuth();
   const { toast } = useToast();
+
+  if (!isDemoMode || !caseStudy) {
+    return (
+      <Card>
+        <CardBody className="py-16 text-center">
+          <h1 className="text-lg font-semibold text-slate-900">Demo case study</h1>
+          <p className="text-sm text-slate-500 mt-2">This synthetic benchmark is available when signed in with a DevPilot demo persona.</p>
+        </CardBody>
+      </Card>
+    );
+  }
 
   const handleDownload = () => {
     const text = `# DevPilot Case Study: Quantitative SDLC Benchmarks\n\n` +

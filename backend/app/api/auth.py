@@ -21,7 +21,7 @@ from app.core.security import (
     ROLE_CAPABILITIES,
     verify_password,
 )
-from app.models import PasswordResetToken, User, UserRole
+from app.models import PasswordResetToken, Project, ProjectMember, User, UserRole
 from app.schemas import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
@@ -64,6 +64,21 @@ async def register(
         is_active=True,
     )
     session.add(user)
+    await session.flush()
+    project = Project(
+        id=uuid.uuid4(),
+        name=f"{payload.name}'s Workspace",
+        description="Personal workspace",
+        created_by=user.id,
+    )
+    session.add(project)
+    session.add(
+        ProjectMember(
+            project_id=project.id,
+            user_id=user.id,
+            role=UserRole.business_analyst,
+        )
+    )
     await record_audit_log(
         session=session,
         action="USER_REGISTERED",

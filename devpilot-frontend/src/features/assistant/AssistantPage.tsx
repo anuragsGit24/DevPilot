@@ -134,10 +134,10 @@ export function AssistantPage() {
       <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         <span className="text-2xs text-slate-400 font-semibold uppercase flex-shrink-0">Suggested:</span>
         {[
-          'Summarize biometric authentication requirements',
-          'Explain REQ-007 vs REQ-014 conflict',
-          'Which user stories need Gherkin criteria?',
-          'Analyze Sprint 2 velocity overload risk',
+          'Summarize this project’s current requirements',
+          'Show requirements awaiting review',
+          'Which stories still need acceptance criteria?',
+          'Summarize current sprint capacity',
         ].map((sug, i) => (
           <button
             key={i}

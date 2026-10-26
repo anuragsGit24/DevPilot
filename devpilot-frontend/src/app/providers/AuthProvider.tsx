@@ -1,12 +1,23 @@
 import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
 import type { User, UserRole } from '@/types/domain';
-import { DEMO_USERS } from '@/mocks/seed-data/project-retail-banking';
 import { api, type UserProfile } from '@/lib/api';
 
 // ============================================================
 // Auth Context — Enterprise Real Authentication & Authorization
 // Backed by JWT session tokens, bcrypt verification, and RBAC
 // ============================================================
+
+const DEMO_PERSONA_EMAILS = new Set([
+  'admin@devpilot.demo',
+  'pm@devpilot.demo',
+  'ba@devpilot.demo',
+  'dev@devpilot.demo',
+  'qa@devpilot.demo',
+]);
+
+function isDemoPersona(email: string): boolean {
+  return DEMO_PERSONA_EMAILS.has(email.trim().toLowerCase());
+}
 
 interface AuthState {
   user: User | null;
@@ -18,7 +29,6 @@ interface AuthState {
 type AuthAction =
   | { type: 'SET_USER'; user: User; isDemoMode: boolean }
   | { type: 'LOGOUT' }
-  | { type: 'SWITCH_ROLE'; role: UserRole }
   | { type: 'SET_LOADING'; loading: boolean };
 
 function mapProfileToUser(profile: UserProfile): User {
@@ -52,11 +62,6 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         isDemoMode: false,
         loading: false,
       };
-    case 'SWITCH_ROLE': {
-      if (!state.user) return state;
-      const demoUser = DEMO_USERS.find((u) => u.role === action.role);
-      return { ...state, user: demoUser ?? state.user, isDemoMode: true };
-    }
     case 'SET_LOADING':
       return { ...state, loading: action.loading };
     default:
@@ -80,8 +85,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, {
-    user: DEMO_USERS[1], // Initial fallback: James Whitfield (PM)
-    isAuthenticated: true,
+    user: null,
+    isAuthenticated: false,
     isDemoMode: false,
     loading: true,
   });
@@ -96,12 +101,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           dispatch({
             type: 'SET_USER',
             user: mapProfileToUser(profile),
-            isDemoMode: false,
+            isDemoMode: isDemoPersona(profile.email),
           });
           return;
         }
       } catch {
-        // Fall back to demo mode if no valid token exists
+        api.clearTokens();
       }
       if (mounted) {
         dispatch({ type: 'SET_LOADING', loading: false });
@@ -120,31 +125,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dispatch({
         type: 'SET_USER',
         user: mapProfileToUser(result.user),
-        isDemoMode: false,
+        isDemoMode: isDemoPersona(result.user.email),
       });
       return { success: true };
-    } catch (apiError: any) {
-      // If error is invalid credentials or locked account, do not bypass
-      const msg = apiError?.message || '';
-      if (
-        msg.includes('Invalid email') ||
-        msg.includes('locked') ||
-        msg.includes('deactivated')
-      ) {
-        return { success: false, error: msg };
-      }
-
-      // If backend is unreachable or local development demo persona selected:
-      const demoUser = DEMO_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase());
-      if (demoUser) {
-        if (!demoUser.active) {
-          return { success: false, error: 'This demo account is inactive.' };
-        }
-        dispatch({ type: 'SET_USER', user: demoUser, isDemoMode: true });
-        return { success: true };
-      }
-
-      return { success: false, error: msg || 'Authentication failed.' };
+    } catch (apiError: unknown) {
+      const message = apiError instanceof Error ? apiError.message : 'Unable to reach the authentication service.';
+      return {
+        success: false,
+        error: message,
+      };
     }
   }, []);
 
@@ -154,8 +143,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await api.register({ name, email, password, role });
         // Automatically login after successful registration
         return await login(email, password);
-      } catch (err: any) {
-        return { success: false, error: err?.message || 'Registration failed.' };
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : 'Registration failed.' };
       }
     },
     [login],
@@ -167,7 +156,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const switchRole = useCallback((role: UserRole) => {
-    dispatch({ type: 'SWITCH_ROLE', role });
+    // Roles are issued by the backend and cannot be changed in the browser.
+    void role;
   }, []);
 
   return (
@@ -181,7 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         switchRole,
-        demoUsers: DEMO_USERS.filter((u) => u.active),
+        demoUsers: [],
       }}
     >
       {children}

@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, LogOut, Settings,
   Moon,
 } from 'lucide-react';
-import { MOCK_PROJECTS } from '@/mocks/seed-data/project-retail-banking';
+import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { Avatar } from '@/components/ui/Misc';
 
 // ============================================================
@@ -59,12 +59,13 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, logout } = useAuth();
+  const { projects } = useProjectData();
   const location = useLocation();
   const params = useParams();
 
   // Determine active project for contextual nav
-  const activeProjectId = params.projectId ?? 'proj-001';
-  const activeProject = MOCK_PROJECTS.find((p) => p.id === activeProjectId) ?? MOCK_PROJECTS[0];
+  const activeProjectId = params.projectId ?? projects[0]?.id;
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0];
 
   // Project-scoped nav items
   const projectNavItems = [
@@ -75,7 +76,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     { icon: 'Sparkles', label: 'AI Assistant', path: `/projects/${activeProjectId}/assistant` },
   ];
 
-  const isInProject = location.pathname.includes('/projects/proj-');
+  const isInProject = Boolean(params.projectId);
 
   return (
     <nav
@@ -111,7 +112,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {!collapsed && (
               <div className="mt-4 mb-1 px-1">
                 <div className="text-2xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  {activeProject.name.length > 22 ? activeProject.name.slice(0, 22) + '…' : activeProject.name}
+                  {activeProject?.name
+                    ? activeProject.name.length > 22 ? activeProject.name.slice(0, 22) + '…' : activeProject.name
+                    : 'Workspace'}
                 </div>
               </div>
             )}

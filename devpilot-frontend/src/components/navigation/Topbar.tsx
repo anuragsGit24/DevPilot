@@ -4,22 +4,24 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useTheme } from '@/app/providers/ThemeProvider';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
-import { MOCK_PROJECTS } from '@/mocks/seed-data/project-retail-banking';
-import { Bell, HelpCircle, ChevronDown, Search, AlertTriangle, Sun, Moon } from 'lucide-react';
+import { useProjectData } from '@/app/providers/ProjectDataProvider';
+import { Bell, HelpCircle, Search, AlertTriangle, Sun, Moon } from 'lucide-react';
 import { Avatar } from '@/components/ui/Misc';
 import { Dialog } from '@/components/ui/Dialog';
-import type { UserRole } from '@/types/domain';
-import { DEMO_USERS } from '@/mocks/seed-data/project-retail-banking';
 
 // ============================================================
 // Topbar Component
 // ============================================================
 
-function buildBreadcrumbs(pathname: string, projectId?: string): { label: string; href?: string }[] {
+function buildBreadcrumbs(
+  pathname: string,
+  projectId: string | undefined,
+  projects: { id: string; name: string }[],
+): { label: string; href?: string }[] {
   const crumbs: { label: string; href?: string }[] = [{ label: 'DevPilot', href: '/dashboard' }];
   const segments = pathname.split('/').filter(Boolean);
 
-  const project = MOCK_PROJECTS.find((p) => p.id === projectId);
+  const project = projects.find((item) => item.id === projectId);
 
   if (segments[0] === 'dashboard') crumbs.push({ label: 'Dashboard' });
   else if (segments[0] === 'projects') {
@@ -58,23 +60,23 @@ interface TopbarProps {
 }
 
 export function Topbar({ sidebarCollapsed }: TopbarProps) {
-  const { user, switchRole, isDemoMode } = useAuth();
+  const { user, isDemoMode } = useAuth();
+  const { projects } = useProjectData();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const params = useParams();
-  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const crumbs = buildBreadcrumbs(location.pathname, params.projectId);
+  const crumbs = buildBreadcrumbs(location.pathname, params.projectId, projects);
   const notifications = [
     { id: 1, title: 'Sprint 2 velocity warning', desc: 'Allocation exceeds capacity by 13 pts', time: '5m ago', unread: true },
     { id: 2, title: 'Evaluation run complete', desc: 'User Stories eval scored 74%', time: '1h ago', unread: true },
     { id: 3, title: 'REQ-007 flagged for review', desc: 'Possible contradiction with REQ-014', time: '3h ago', unread: false },
   ];
   const unreadCount = notifications.filter((n) => n.unread).length;
-  const helpProjectId = params.projectId ?? MOCK_PROJECTS[0]?.id;
+  const helpProjectId = params.projectId ?? projects[0]?.id;
   const helpLinks = [
     { label: 'Dashboard', description: 'Review project health and recent activity.', to: '/dashboard' },
     { label: 'Requirements', description: 'Ingest, review, and confirm requirements.', to: `/projects/${helpProjectId}/requirements` },
@@ -83,11 +85,6 @@ export function Topbar({ sidebarCollapsed }: TopbarProps) {
     { label: 'Evaluations', description: 'Review benchmark runs and quality metrics.', to: `/projects/${helpProjectId}/evaluations` },
     { label: 'Prompt library', description: 'Browse prompt versions and test templates.', to: '/prompts' },
   ];
-
-  const demoRoles: { role: UserRole; label: string }[] = DEMO_USERS.filter((u) => u.active).map((u) => ({
-    role: u.role,
-    label: `${u.name} (${ROLE_LABELS[u.role]})`,
-  }));
 
   return (
     <header
@@ -186,14 +183,9 @@ export function Topbar({ sidebarCollapsed }: TopbarProps) {
         <HelpCircle size={16} />
       </button>
 
-      {/* Demo mode + Role switcher */}
+      {/* Demo mode indicator */}
       {isDemoMode && (
-        <div className="relative">
-          <button
-            onClick={() => setShowRoleSwitcher(!showRoleSwitcher)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors"
-            aria-expanded={showRoleSwitcher}
-          >
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-200">
             <AlertTriangle size={13} className="text-amber-600" />
             <span className="text-xs font-medium text-amber-700">Demo Mode</span>
             {user && (
@@ -201,28 +193,6 @@ export function Topbar({ sidebarCollapsed }: TopbarProps) {
                 {ROLE_LABELS[user.role]}
               </span>
             )}
-            <ChevronDown size={12} className="text-amber-600" />
-          </button>
-          {showRoleSwitcher && (
-            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-card-hover border border-slate-200 z-50 animate-fade-in overflow-hidden">
-              <div className="px-4 py-2 border-b border-slate-100 bg-amber-50">
-                <p className="text-xs text-amber-700 font-medium">Switch Demo Role</p>
-                <p className="text-2xs text-amber-600">Not security enforcement</p>
-              </div>
-              {demoRoles.map(({ role, label }) => (
-                <button
-                  key={role}
-                  onClick={() => { switchRole(role); setShowRoleSwitcher(false); }}
-                  className={cn(
-                    'w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0',
-                    user?.role === role && 'bg-blue-50 text-blue-700 font-medium',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
 

@@ -107,6 +107,11 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+
+
 class ProjectMemberAdd(BaseModel):
     user_id: uuid.UUID
     role: UserRole
@@ -148,6 +153,39 @@ class ArtifactRead(BaseModel):
     artifact_type: ArtifactType
     title: str
     status: ReviewStatus
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkItemCreate(BaseModel):
+    record_type: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=300)
+    status: str | None = Field(default=None, max_length=80)
+    payload: dict = Field(default_factory=dict)
+    source_ids: list[uuid.UUID] = Field(default_factory=list)
+    parent_id: uuid.UUID | None = None
+
+
+class WorkItemUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    status: str | None = Field(default=None, max_length=80)
+    payload: dict | None = None
+    source_ids: list[uuid.UUID] | None = None
+    parent_id: uuid.UUID | None = None
+
+
+class WorkItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    record_type: str
+    title: str
+    status: str | None
+    payload: dict
+    source_ids: list
+    parent_id: uuid.UUID | None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
