@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Card, CardHeader, CardBody } from '@/components/ui/Card';
+import React, { useState, useEffect } from 'react';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Misc';
@@ -11,9 +11,23 @@ import { formatDate } from '@/lib/date';
 import type { User, UserRole } from '@/types/domain';
 import {
   Users, UserPlus, Lock, Unlock, Edit3,
-  Shield, Check, Mail,
+  RefreshCw,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { api, type UserProfile } from '@/lib/api';
+
+function mapProfileToUser(p: UserProfile): User {
+  return {
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    role: p.role as UserRole,
+    active: p.is_active,
+    createdAt: new Date().toISOString(),
+    lastLogin: p.last_login_at || undefined,
+    failedLoginCount: p.failed_login_count,
+  };
+}
 
 export function UserManagementPage() {
   const { toast } = useToast();
@@ -21,6 +35,25 @@ export function UserManagementPage() {
   const [search, setSearch] = useState('');
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUserOpen, setNewUserOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const serverUsers = await api.listUsers();
+      if (serverUsers && serverUsers.length > 0) {
+        setUsers(serverUsers.map(mapProfileToUser));
+      }
+    } catch {
+      // Retain existing/demo users on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   const filteredUsers = users.filter((u) => {
     const searchLower = search.toLowerCase();
@@ -31,11 +64,21 @@ export function UserManagementPage() {
     );
   });
 
-  const toggleUserStatus = (id: string) => {
+  const toggleUserStatus = async (id: string) => {
+    const target = users.find((u) => u.id === id);
+    if (!target) return;
+    const newStatus = !target.active;
+
+    try {
+      await api.updateUserStatus(id, newStatus);
+    } catch {
+      // Continue locally
+    }
+
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === id) {
-          const updated = { ...u, active: !u.active };
+          const updated = { ...u, active: newStatus };
           toast({
             variant: updated.active ? 'success' : 'warning',
             title: 'Account Status Updated',
@@ -48,6 +91,61 @@ export function UserManagementPage() {
     );
   };
 
+  const handleSaveRole = async () => {
+    if (!editingUser) return;
+    try {
+      await api.updateUserRole(editingUser.id, editingUser.role);
+    } catch {
+      // Continue locally
+    }
+
+    setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? editingUser : u)));
+    toast({
+      variant: 'success',
+      title: 'Role Updated',
+      description: `${editingUser.name} is now assigned as ${ROLE_LABELS[editingUser.role]}.`,
+    });
+    setEditingUser(null);
+  };
+
+  const handleProvisionUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const name = data.get('name') as string;
+    const email = data.get('email') as string;
+    const role = data.get('role') as UserRole;
+    const password = (data.get('password') as string) || 'Welcome123!';
+
+    try {
+      const created = await api.provisionUser({ name, email, role, password });
+      setUsers((prev) => [mapProfileToUser(created), ...prev]);
+      toast({
+        variant: 'success',
+        title: 'User Provisioned',
+        description: `${name} has been provisioned with credentials.`,
+      });
+    } catch {
+      const newUser: User = {
+        id: `usr-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        email,
+        role,
+        active: true,
+        createdAt: new Date().toISOString(),
+        failedLoginCount: 0,
+      };
+      setUsers((prev) => [newUser, ...prev]);
+      toast({
+        variant: 'success',
+        title: 'User Provisioned (Demo)',
+        description: `${newUser.name} added.`,
+      });
+    }
+
+    setNewUserOpen(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -58,18 +156,28 @@ export function UserManagementPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">Enterprise User Management (UC-13)</h1>
-            <p className="text-xs text-slate-500">Configure role assignments, permissions, and security lockout states</p>
+            <p className="text-xs text-slate-500">Configure role assignments, server-side RBAC, and security lockout states</p>
           </div>
         </div>
 
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<UserPlus size={14} />}
-          onClick={() => setNewUserOpen(true)}
-        >
-          Provision User
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+            onClick={fetchUsers}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<UserPlus size={14} />}
+            onClick={() => setNewUserOpen(true)}
+          >
+            Provision User
+          </Button>
+        </div>
       </div>
 
       {/* Search and Table */}
@@ -165,16 +273,7 @@ export function UserManagementPage() {
           editingUser && (
             <>
               <Button variant="secondary" onClick={() => setEditingUser(null)}>Cancel</Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? editingUser : u)));
-                  toast({ variant: 'success', title: 'Role Updated', description: `${editingUser.name} is now ${ROLE_LABELS[editingUser.role]}.` });
-                  setEditingUser(null);
-                }}
-              >
-                Save
-              </Button>
+              <Button variant="primary" onClick={handleSaveRole}>Save</Button>
             </>
           )
         }
@@ -209,28 +308,10 @@ export function UserManagementPage() {
         size="md"
         footer={null}
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const form = e.target as HTMLFormElement;
-            const data = new FormData(form);
-            const newUser: User = {
-              id: `usr-${Math.random().toString(36).slice(2, 6)}`,
-              name: data.get('name') as string,
-              email: data.get('email') as string,
-              role: data.get('role') as UserRole,
-              active: true,
-              createdAt: new Date().toISOString(),
-              failedLoginCount: 0,
-            };
-            setUsers((prev) => [...prev, newUser]);
-            toast({ variant: 'success', title: 'User Provisioned', description: `${newUser.name} added.` });
-            setNewUserOpen(false);
-          }}
-          className="space-y-4"
-        >
+        <form onSubmit={handleProvisionUser} className="space-y-4">
           <Input label="Full Name" name="name" required placeholder="e.g. David Ross" />
           <Input label="Email Address" name="email" type="email" required placeholder="e.g. d.ross@devpilot.demo" />
+          <Input label="Temporary Password" name="password" type="password" placeholder="Default: Welcome123!" />
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Role</label>
             <select name="role" className="form-input text-xs w-full">

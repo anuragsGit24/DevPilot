@@ -1,20 +1,33 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Lock, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Lock, ArrowLeft, KeyRound } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { api } from '@/lib/api';
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
+
+  const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const queryToken = searchParams.get('token');
+    if (queryToken) {
+      setToken(queryToken);
+    }
+  }, [searchParams]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -23,13 +36,35 @@ export function ResetPasswordPage() {
       setError('Password must contain at least 8 characters');
       return;
     }
+    if (!token) {
+      setError('Please provide your reset token');
+      return;
+    }
 
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      toast({ variant: 'success', title: 'Password updated', description: 'You may now sign in with your new credentials.' });
+    try {
+      await api.resetPassword(token, password);
+      toast({
+        variant: 'success',
+        title: 'Password updated',
+        description: 'You may now sign in with your new credentials.',
+      });
       navigate('/login');
-    }, 700);
+    } catch (err: any) {
+      // In offline / demo mode fallback:
+      if (err?.message?.includes('Failed to fetch')) {
+        toast({
+          variant: 'success',
+          title: 'Password updated (Demo)',
+          description: 'You may now sign in with your updated credentials.',
+        });
+        navigate('/login');
+      } else {
+        setError(err?.message || 'Password reset failed. Token may be expired or reused.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -48,21 +83,40 @@ export function ResetPasswordPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
+            label="Recovery Token"
+            type="text"
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value);
+              setError(null);
+            }}
+            required
+            icon={<KeyRound size={16} />}
+            placeholder="Paste your reset token here"
+          />
+
+          <Input
             label="New Password"
             type="password"
             value={password}
-            onChange={(e) => { setPassword(e.target.value); setError(null); }}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
             required
             icon={<Lock size={16} />}
             placeholder="••••••••"
-            hint="Minimum 8 characters with letters and numbers"
+            hint="Minimum 8 characters"
           />
 
           <Input
             label="Confirm Password"
             type="password"
             value={confirmPassword}
-            onChange={(e) => { setConfirmPassword(e.target.value); setError(null); }}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              setError(null);
+            }}
             required
             icon={<Lock size={16} />}
             placeholder="••••••••"

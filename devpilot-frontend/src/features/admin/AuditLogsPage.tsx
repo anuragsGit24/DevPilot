@@ -1,29 +1,96 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
-import { Card, CardHeader, CardBody } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { SearchInput } from '@/components/ui/Input';
 import { Avatar } from '@/components/ui/Misc';
 import { formatDate } from '@/lib/date';
-import { Shield, Download, Filter, FileText } from 'lucide-react';
+import { Shield, Download, Filter, FileText, RefreshCw } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { api, type ApiAuditLog } from '@/lib/api';
+
+interface LogItem {
+  id: string;
+  timestamp: string;
+  userName: string;
+  userRole: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  entityTitle?: string;
+}
 
 export function AuditLogsPage() {
   const { activities } = useProjectData();
   const { toast } = useToast();
 
+  const [logs, setLogs] = useState<LogItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  const filteredLogs = activities.filter((act) => {
+  const fetchAuditLogs = async () => {
+    setLoading(true);
+    try {
+      const serverLogs = await api.listAuditLogs();
+      if (serverLogs && serverLogs.length > 0) {
+        setLogs(
+          serverLogs.map((l: ApiAuditLog) => ({
+            id: l.id,
+            timestamp: l.created_at,
+            userName: l.details && (l.details as any).email ? String((l.details as any).email) : 'System / User',
+            userRole: l.details && (l.details as any).role ? String((l.details as any).role) : 'enterprise',
+            action: l.action,
+            entityType: l.entity_type || undefined,
+            entityId: l.entity_id || undefined,
+            entityTitle: l.entity_title || undefined,
+          })),
+        );
+      } else {
+        // Fallback to local activities
+        setLogs(
+          activities.map((act) => ({
+            id: act.id,
+            timestamp: act.timestamp,
+            userName: act.userName || 'Unknown',
+            userRole: act.userRole || 'analyst',
+            action: act.action,
+            entityType: act.entityType || act.resourceType,
+            entityId: act.entityId || act.resourceId,
+            entityTitle: act.entityTitle || act.resourceName,
+          })),
+        );
+      }
+    } catch {
+      setLogs(
+        activities.map((act) => ({
+          id: act.id,
+          timestamp: act.timestamp,
+          userName: act.userName || 'Unknown',
+          userRole: act.userRole || 'analyst',
+          action: act.action,
+          entityType: act.entityType || act.resourceType,
+          entityId: act.entityId || act.resourceId,
+          entityTitle: act.entityTitle || act.resourceName,
+        })),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuditLogs();
+  }, [activities]);
+
+  const filteredLogs = logs.filter((act) => {
     const searchLower = search.toLowerCase();
     const matchesSearch =
       (act.userName ?? '').toLowerCase().includes(searchLower) ||
       (act.action ?? '').toLowerCase().includes(searchLower) ||
-      ((act.entityTitle ?? '')).toLowerCase().includes(searchLower) ||
-      ((act.entityId ?? '')).toLowerCase().includes(searchLower) ||
-      ((act.resourceName ?? '')).toLowerCase().includes(searchLower);
+      (act.entityTitle ?? '').toLowerCase().includes(searchLower) ||
+      (act.entityId ?? '').toLowerCase().includes(searchLower);
     const matchesType = typeFilter === 'all' || act.entityType === typeFilter;
     return matchesSearch && matchesType;
   });
@@ -33,7 +100,7 @@ export function AuditLogsPage() {
     const rows = filteredLogs
       .map(
         (l) =>
-          `"${l.timestamp}","${l.userName || ''}","${l.userRole || ''}","${l.action || ''}","${l.entityType || l.resourceType || ''}","${l.entityId || l.resourceId || ''}","${l.entityTitle || l.resourceName || ''}"`,
+          `"${l.timestamp}","${l.userName || ''}","${l.userRole || ''}","${l.action || ''}","${l.entityType || ''}","${l.entityId || ''}","${l.entityTitle || ''}"`,
       )
       .join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv' });
@@ -60,14 +127,24 @@ export function AuditLogsPage() {
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          icon={<Download size={14} />}
-          onClick={handleExportCsv}
-        >
-          Export Audit CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+            onClick={fetchAuditLogs}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<Download size={14} />}
+            onClick={handleExportCsv}
+          >
+            Export Audit CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filter and Table */}
@@ -89,11 +166,11 @@ export function AuditLogsPage() {
               className="form-input text-xs py-1.5 px-3 rounded-lg"
             >
               <option value="all">All Entity Types</option>
+              <option value="user">User & Identity</option>
               <option value="project">Project</option>
+              <option value="artifact">Artifact</option>
               <option value="requirement">Requirement</option>
               <option value="user_story">User Story</option>
-              <option value="acceptance_criteria">Criteria</option>
-              <option value="test_case">Test Case</option>
               <option value="prompt">Prompt</option>
             </select>
           </div>
@@ -126,16 +203,16 @@ export function AuditLogsPage() {
                   <td className="text-xs font-medium text-slate-900">{log.action}</td>
                   <td>
                     <Badge variant="outline" size="xs" className="capitalize">
-                      {(log.entityType || log.resourceType || 'general').replace(/_/g, ' ')}
+                      {(log.entityType || 'general').replace(/_/g, ' ')}
                     </Badge>
                   </td>
                   <td>
                     <div className="flex items-center gap-1.5 font-mono text-xs text-blue-600">
                       <FileText size={12} />
-                      <span className="font-semibold">{log.entityId || log.resourceId || log.id}</span>
-                      {(log.entityTitle || log.resourceName) && (
+                      <span className="font-semibold">{log.entityId || log.id}</span>
+                      {log.entityTitle && (
                         <span className="text-slate-500 font-sans truncate max-w-[200px]">
-                          — {log.entityTitle || log.resourceName}
+                          — {log.entityTitle}
                         </span>
                       )}
                     </div>
