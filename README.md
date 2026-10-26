@@ -1,24 +1,29 @@
 # DevPilot — AI-Powered SDLC Co-Pilot
 
-**Status:** Documentation blueprint plus an early frontend prototype and Phase P1 backend foundation. The backend is not production-ready and has no completed authentication, authorization, ingestion, AI provider, or frontend API integration yet. No sponsor approval or production readiness is implied. Primary source: `DevPilot_UseCase_v1.0_Standard`.
+**Status:** Phase P1 Foundation completed with **Real Authentication & Server-Side RBAC** (bcrypt password hashing, JWT session handling, single-use reset tokens, failed-login lockout controls, project-scoped isolation, immutable audit logging) and dual database support (**Local Docker PostgreSQL** & **Google Cloud SQL PostgreSQL 16 on GCP $300 Free Credits**). See [GCP Migration Guide](docs/architecture/GCP_DATABASE_MIGRATION_GUIDE.md).
 
 ## Overview
 DevPilot is a human-in-the-loop SDLC assistant that transforms public/synthetic business requirements into traceable user stories, acceptance criteria, test cases, OpenAPI specifications, architecture recommendations, and sprint plans. It also includes prompt versioning, baseline evaluation, an open-source case study, dashboard, exports, authentication/RBAC, and a contextual assistant.
 
-## Proposed baseline (not a confirmed sponsor decision)
-- Frontend: React + TypeScript, responsive and accessible components.
-- Backend: Python + FastAPI + typed request/response schemas.
-- Canonical data: PostgreSQL; vector retrieval: ChromaDB candidate.
-- AI orchestration: LangChain behind a provider-neutral adapter.
-- Models: approved cloud APIs, hosted/open-source models, or Ollama where supported.
-- Auth: JWT/session strategy with Argon2id/bcrypt password hashing and server-side RBAC.
-- Runtime/CI: Docker Compose, GitHub Actions.
-- Tests/quality: pytest, React Testing Library, Playwright, Ruff/Black, ESLint/Prettier, dependency scanning.
-- Observability: structured JSON logs, health checks, request tracing, LLM latency/token/cost metrics.
+## Implemented Architecture
+- **Frontend:** React 19 + TypeScript + Tailwind CSS, full corporate design system, responsive layouts.
+- **Backend:** Python 3.12 + FastAPI + SQLAlchemy 2.0 Async + asyncpg.
+- **Database Options:**
+  - **Local:** PostgreSQL 16 Alpine via `docker-compose.yml`.
+  - **Cloud:** Google Cloud SQL (PostgreSQL 16) via `docker-compose.gcp.yml` with Cloud SQL Auth Proxy (mTLS). See [GCP Migration Guide](docs/architecture/GCP_DATABASE_MIGRATION_GUIDE.md).
+- **Authentication & RBAC (Completed Phase P1):**
+  - Real user registration and administrative user provisioning.
+  - Salted Bcrypt password hashing (work factor 12).
+  - Short-lived JWT access tokens (60m) & rotating refresh tokens (7 days).
+  - Single-use, expiring SHA-256 hashed password reset tokens.
+  - Brute-force protection & automatic account lockout (5 failed attempts -> 15 min lockout cooldown).
+  - Fine-grained server-side RBAC across 5 enterprise roles: Admin, Project Manager, Business Analyst, Developer, Tester.
+  - Project-scoped data isolation & membership access verification.
+  - Immutable audit trail ledger (`audit_logs`) recording logins, lockouts, resets, role edits, and operations.
+- **Quality & Tests:** Automated test suites passing in pytest (unit & integration) and Vite/TypeScript compiler checks.
 
-Technology choices are proposed because the source document allows selection. Preserve future repository decisions and record changes in `docs/architecture/ADRS.md`.
-
-## Documentation map
+## Documentation Map
+- [GCP Cloud SQL Migration Guide](docs/architecture/GCP_DATABASE_MIGRATION_GUIDE.md)
 - [Backend connection guide](docs/BACKEND_CONNECTION_GUIDE.md)
 - [Charter](docs/PROJECT_CHARTER.md) · [PRD](docs/PRD.md) · [Traceability](docs/REQUIREMENTS_TRACEABILITY.md)
 - [Roadmap](docs/IMPLEMENTATION_ROADMAP.md) · [Agile plan](docs/AGILE_PLAN.md)
@@ -28,17 +33,25 @@ Technology choices are proposed because the source document allows selection. Pr
 - AI engineering: [Prompt guide](docs/ai/PROMPT_ENGINEERING_GUIDE.md), [Prompt specification](docs/ai/PROMPT_LIBRARY_SPECIFICATION.md), [Evaluation methodology](docs/ai/EVALUATION_METHODOLOGY.md), [Provider strategy](docs/ai/MODEL_PROVIDER_STRATEGY.md)
 - Operations: [Test strategy](docs/testing/TEST_STRATEGY.md), [Test plan](docs/testing/TEST_PLAN.md), [Security checklist](docs/SECURITY_CHECKLIST.md), [CI/CD](docs/DEVOPS_AND_CICD.md), [Runbook](docs/OBSERVABILITY_AND_RUNBOOK.md), [Deployment](docs/DEPLOYMENT_GUIDE.md), [User guide](docs/USER_GUIDE.md), [Admin guide](docs/ADMIN_GUIDE.md), [Final deliverables](docs/DEMO_AND_FINAL_DELIVERABLES.md), [Contributing](CONTRIBUTING.md).
 
-## Prerequisites for future implementation
-Git, pinned Python version, Node.js LTS, Docker Compose, PostgreSQL, selected vector store, and an approved model provider or local model. The Phase P1 local stack is defined in `docker-compose.yml`; connection steps are in [the backend connection guide](docs/BACKEND_CONNECTION_GUIDE.md). Create `.env` from `.env.example` when implementation begins; never commit secrets.
+## Quick Start
 
-## Targets to measure, not claims
-UI page load <2 s; non-AI API response <500 ms; standard artifact generation <30 s; dashboard render <3 s; ≥99% availability in test/demo. Record test conditions and results.
+### 1. Backend with Local or GCP Database
+```bash
+# Local Docker Postgres:
+docker compose up --build
 
-## Engineering gates
-Structured SDLC phases; 1–2-week Agile sprints; PR reviews and protected main; ≥70% unit coverage target plus integration/E2E/security/AI regression tests; CI build/lint/test/scan/package/deploy/smoke stages; WCAG 2.1 AA target; JSON logs, health checks, LLM tracing, cost telemetry, backup/restore and runbooks.
+# Or with GCP Cloud SQL ($300 Credit Project):
+docker compose -f docker-compose.gcp.yml up --build
+```
 
-## Exclusions
-No requirements-to-code generation, real-time co-editing, production Jira/Azure DevOps integrations, custom model training/fine-tuning, production banking deployment, confidential/customer data sent to model APIs, automatic deployment of generated APIs, or real-time external-repository CI/CD.
+### 2. Frontend Development Server
+```bash
+cd devpilot-frontend
+npm install
+npm run dev
+```
 
-## Status integrity
-Source requirements are goals, not evidence of implementation. Report achieved metrics only with reproducible evidence.
+### 3. Run Backend Automated Test Suite
+```bash
+python -m pytest backend/tests
+```

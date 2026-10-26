@@ -1,0 +1,45 @@
+services:
+  # Official Google Cloud SQL Auth Proxy
+  # Establishes an encrypted mTLS tunnel directly to GCP Cloud SQL using IAM credentials
+  # Exposes port 5432 locally for the backend container
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2-alpine
+    container_name: devpilot-gcp-proxy
+    command:
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "--credentials-file=/secrets/service_account.json"
+      - "${GCP_PROJECT_ID}:${GCP_REGION}:${CLOUD_SQL_INSTANCE}"
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./service_account.json}:/secrets/service_account.json:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/cloud-sql-proxy", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+    container_name: devpilot-backend-api
+    environment:
+      DEVPILOT_ENVIRONMENT: production
+      DEVPILOT_DATABASE_URL: postgresql+asyncpg://${CLOUD_SQL_USER:-devpilot}:${CLOUD_SQL_PASSWORD}@cloud-sql-proxy:5432/${CLOUD_SQL_DB:-devpilot}
+      DEVPILOT_SECRET_KEY: ${DEVPILOT_SECRET_KEY:-devpilot-enterprise-production-jwt-secret-key-change-me}
+      DEVPILOT_CORS_ORIGINS: '["http://localhost:5173", "http://127.0.0.1:5173"]'
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"

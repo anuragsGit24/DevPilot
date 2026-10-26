@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ArtifactType, ReviewStatus
+from app.models import ArtifactType, ReviewStatus, UserRole
 
 
 class ErrorDetail(BaseModel):
@@ -28,10 +28,97 @@ class HealthResponse(BaseModel):
     database: str
 
 
+class GenericResponse(BaseModel):
+    status: str = "ok"
+    message: str
+
+
+# Authentication & User Schemas
+class UserRegister(BaseModel):
+    name: str = Field(min_length=2, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    role: UserRole = UserRole.business_analyst
+
+
+class UserProvision(BaseModel):
+    name: str = Field(min_length=2, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    role: UserRole
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class UserLogin(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    email: str
+    role: UserRole
+    is_active: bool
+    failed_login_count: int
+    locked_until: datetime | None
+    last_login_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    reset_token: str | None = None  # Returned in dev/testing mode only for automated verification
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+# Project Schemas
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
-    created_by: uuid.UUID
+
+
+class ProjectMemberAdd(BaseModel):
+    user_id: uuid.UUID
+    role: UserRole
+
+
+class ProjectMemberRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    role: UserRole
+    joined_at: datetime
 
 
 class ProjectRead(BaseModel):
@@ -45,10 +132,10 @@ class ProjectRead(BaseModel):
     updated_at: datetime
 
 
+# Artifact Schemas
 class ArtifactCreate(BaseModel):
     artifact_type: ArtifactType
     title: str = Field(min_length=1, max_length=300)
-    created_by: uuid.UUID
     payload: dict = Field(default_factory=dict)
     source_requirement_ids: list[uuid.UUID] = Field(default_factory=list)
 
@@ -64,3 +151,18 @@ class ArtifactRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+# Audit Log Schemas
+class AuditLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID | None
+    action: str
+    entity_type: str | None
+    entity_id: str | None
+    entity_title: str | None
+    ip_address: str | None
+    details: dict | None
+    created_at: datetime

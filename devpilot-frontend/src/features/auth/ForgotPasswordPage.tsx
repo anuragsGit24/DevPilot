@@ -2,20 +2,33 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Mail, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [tokenHint, setTokenHint] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+
+    try {
+      const res = await api.forgotPassword(email);
+      if (res.reset_token) {
+        setTokenHint(res.reset_token);
+      }
       setSubmitted(true);
-    }, 600);
+    } catch {
+      // In demo mode or if offline:
+      setSubmitted(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -26,6 +39,13 @@ export function ForgotPasswordPage() {
       </div>
 
       <div className="p-8">
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-xs text-red-700">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+
         {submitted ? (
           <div className="text-center space-y-4 py-4">
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-600">
@@ -33,10 +53,16 @@ export function ForgotPasswordPage() {
             </div>
             <h2 className="text-base font-semibold text-slate-900">Check your inbox</h2>
             <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              If an enterprise account matches <span className="font-semibold text-slate-800">{email}</span>, we have dispatched a simulated reset token.
+              If an enterprise account matches <span className="font-semibold text-slate-800">{email}</span>, a secure single-use recovery token has been generated.
             </p>
+            {tokenHint && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-left text-xs text-blue-900 font-mono break-all">
+                <span className="font-sans font-semibold block text-blue-800 mb-1">Development Token Generated:</span>
+                {tokenHint}
+              </div>
+            )}
             <div className="pt-2">
-              <Link to="/reset-password">
+              <Link to={`/reset-password${tokenHint ? `?token=${encodeURIComponent(tokenHint)}` : ''}`}>
                 <Button variant="primary" size="sm">
                   Proceed to Reset Screen
                 </Button>
