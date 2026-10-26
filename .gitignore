@@ -68,6 +68,7 @@ vendor/
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 # Python tooling
 .pytest_cache/
 .mypy_cache/
