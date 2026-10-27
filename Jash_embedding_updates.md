@@ -101,7 +101,7 @@ The API uses the `x-goog-api-key` header and returns embedding values in the
 Copy the example file:
 
 ```powershell
-cd C:\Users\Jash\OneDrive\Documents\GitHub\DevPilot
+cd PathName\DevPilot
 Copy-Item backend\.env.example backend\.env
 ```
 
