@@ -81,3 +81,39 @@ storage.
 
 Normal API startup runs `alembic upgrade head`; it does not reset or seed data
 unless demo seeding is explicitly enabled.
+
+## Requirements ingestion and embeddings
+
+The default provider is an external OpenAI-compatible embedding API. Configure
+it before uploading requirements:
+
+```powershell
+$env:DEVPILOT_EMBEDDING_PROVIDER = "api"
+$env:DEVPILOT_EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent"
+$env:DEVPILOT_EMBEDDING_API_KEY = "your-gemini-api-key"
+$env:DEVPILOT_EMBEDDING_MODEL = "gemini-embedding-2"
+```
+
+The backend uses Google’s native Gemini Embeddings REST contract: the
+`x-goog-api-key` header, `content.parts[].text` request content, and
+`embeddings[].values` response vectors. Document text uses the
+`title: none | text: ...` format, while queries use
+`task: search result | query: ...`. The default Docker build does not install
+PyTorch, CUDA, or Sentence Transformers.
+
+EmbeddingGemma remains available as an opt-in local provider. To build and run
+that variant, set `DEVPILOT_EMBEDDING_PROVIDER=gemma` and run:
+
+```powershell
+docker compose build --build-arg INSTALL_LOCAL_EMBEDDINGS=true api
+docker compose up -d
+```
+
+The Gemma variant uses `google/embeddinggemma-2`, text-only configuration,
+`Document`/`SearchQuery` prompts, and CUDA when
+`DEVPILOT_EMBEDDING_DEVICE=auto` detects a supported GPU.
+
+Engineer 2 handoff: use `GET /api/v1/projects/{id}/requirements` for extracted
+requirements and `POST /api/v1/projects/{id}/requirements/search` for RAG
+context. Search results include requirement IDs, source metadata, chunk text,
+and similarity scores.

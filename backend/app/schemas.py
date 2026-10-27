@@ -3,7 +3,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ArtifactType, ReviewStatus, UserRole
+from app.models import (
+    ArtifactType,
+    MoSCoWPriority,
+    RequirementCategory,
+    ReviewStatus,
+    UserRole,
+)
 
 
 class ErrorDetail(BaseModel):
@@ -135,6 +141,70 @@ class ProjectRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+# Requirement Schemas
+class RequirementCreate(BaseModel):
+    requirement_key: str = Field(min_length=1, max_length=30)
+    title: str = Field(min_length=1, max_length=300)
+    description: str = Field(min_length=1)
+    category: RequirementCategory | None = None
+    priority: MoSCoWPriority | None = None
+    source_document: str | None = Field(default=None, max_length=500)
+    source_location: dict | None = None
+    embedding_metadata: dict | None = None
+
+
+class RequirementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    requirement_key: str
+    title: str
+    description: str
+    category: RequirementCategory | None
+    priority: MoSCoWPriority | None
+    source_document: str | None
+    source_location: dict | None
+    embedding_metadata: dict | None
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class RequirementChunkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    requirement_id: uuid.UUID
+    chunk_index: int
+    content: str
+    token_count: int
+    embedding_metadata: dict | None
+
+
+class RequirementsUploadRead(BaseModel):
+    filename: str
+    requirements_created: int
+    chunks_created: int
+    embedding_model: str
+    embeddings_generated: bool
+
+
+class RequirementSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class RequirementSearchResult(BaseModel):
+    requirement: RequirementRead
+    chunk: RequirementChunkRead
+    similarity: float
+
+
+class RequirementSearchResponse(BaseModel):
+    results: list[RequirementSearchResult]
 
 
 # Artifact Schemas

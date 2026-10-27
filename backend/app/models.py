@@ -2,7 +2,20 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, Uuid, func
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -31,12 +44,29 @@ class ArtifactType(str, enum.Enum):
 
 class ReviewStatus(str, enum.Enum):
     draft = "draft"
-    in_review = "accepted"
+    in_review = "in_review"
     accepted = "accepted"
     rejected = "rejected"
 
 
+class RequirementCategory(str, enum.Enum):
+    functional = "functional"
+    non_functional = "non_functional"
+    security = "security"
+    performance = "performance"
+    usability = "usability"
+    other = "other"
+
+
+class MoSCoWPriority(str, enum.Enum):
+    must = "must"
+    should = "should"
+    could = "could"
+    wont = "wont"
+
+
 JsonType = JSONB().with_variant(JSON(), "sqlite")
+EmbeddingType = Vector(768).with_variant(JSON(), "sqlite")
 
 
 class User(Base):
@@ -71,6 +101,9 @@ class Project(Base):
 
     members: Mapped[list["ProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    requirements: Mapped[list["Requirement"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectMember(Base):
@@ -113,6 +146,66 @@ class ArtifactVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     artifact: Mapped[Artifact] = relationship(back_populates="versions")
+
+
+class Requirement(Base):
+    """Project-scoped atomic requirement and its source/embedding metadata."""
+
+    __tablename__ = "requirements"
+    __table_args__ = (
+        UniqueConstraint("project_id", "requirement_key", name="uq_requirements_project_key"),
+        Index("ix_requirements_project_category", "project_id", "category"),
+        Index("ix_requirements_project_priority", "project_id", "priority"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    requirement_key: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(300))
+    description: Mapped[str] = mapped_column(Text)
+    category: Mapped[RequirementCategory | None] = mapped_column(
+        Enum(RequirementCategory, name="requirement_category"), nullable=True
+    )
+    priority: Mapped[MoSCoWPriority | None] = mapped_column(
+        Enum(MoSCoWPriority, name="moscow_priority"), nullable=True
+    )
+    source_document: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_location: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    embedding_metadata: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    project: Mapped[Project] = relationship(back_populates="requirements")
+    chunks: Mapped[list["RequirementChunk"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan"
+    )
+
+
+class RequirementChunk(Base):
+    __tablename__ = "requirement_chunks"
+    __table_args__ = (
+        UniqueConstraint("requirement_id", "chunk_index", name="uq_requirement_chunks_index"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    requirement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("requirements.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    token_count: Mapped[int] = mapped_column(Integer)
+    embedding: Mapped[list[float] | None] = mapped_column(EmbeddingType, nullable=True)
+    embedding_metadata: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+
+    requirement: Mapped[Requirement] = relationship(back_populates="chunks")
 
 
 class WorkItem(Base):

@@ -1,5 +1,4 @@
 from functools import lru_cache
-from typing import Annotated
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +20,20 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     password_reset_expire_minutes: int = 30
+
+    # Requirements ingestion and embeddings
+    requirements_max_upload_bytes: int = 10 * 1024 * 1024
+    embedding_provider: str = "api"
+    embedding_model: str = "gemini-embedding-2"
+    embedding_dimensions: int = 768
+    embedding_device: str = "auto"
+    embedding_batch_size: int = 16
+    embedding_api_url: str = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-embedding-2:embedContent"
+    )
+    embedding_api_key: str | None = None
+    embedding_timeout_seconds: float = 30.0
     
     # Failed-login controls & Account Lockout
     max_failed_attempts: int = 5
