@@ -240,6 +240,52 @@ class ArtifactRead(BaseModel):
     updated_at: datetime
 
 
+class ArtifactDetailRead(ArtifactRead):
+    versions: list[ArtifactVersionRead] = Field(default_factory=list)
+    current_version: ArtifactVersionRead | None = None
+
+
+class ArtifactVersionCreate(BaseModel):
+    payload: dict = Field(default_factory=dict)
+    source_requirement_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class ArtifactStatusUpdate(BaseModel):
+    status: ReviewStatus
+
+
+# AI Generation Schemas (Engineer 2)
+class UserStoriesGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000, description="Optional RAG search query")
+
+
+class AcceptanceCriteriaGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class TestCasesGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class ApiSpecGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class UnifiedGenerateRequest(BaseModel):
+    artifact_type: ArtifactType
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
 class WorkItemCreate(BaseModel):
     record_type: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=300)
