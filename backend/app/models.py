@@ -2,10 +2,32 @@ import enum
 import uuid
 from datetime import datetime
 
+<<<<<<< Updated upstream
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid, func
+=======
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
+>>>>>>> Stashed changes
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
+
+try:
+    from pgvector.sqlalchemy import Vector
+    EmbeddingType = Vector(768).with_variant(JSON(), "sqlite")
+except ImportError:
+    EmbeddingType = JSON().with_variant(JSON(), "sqlite")
 
 
 class Base(DeclarativeBase):

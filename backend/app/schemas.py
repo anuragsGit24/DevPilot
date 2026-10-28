@@ -140,6 +140,18 @@ class ArtifactCreate(BaseModel):
     source_requirement_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class ArtifactVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    artifact_id: uuid.UUID
+    version_number: int
+    payload: dict
+    source_requirement_ids: list
+    created_by: uuid.UUID
+    created_at: datetime
+
+
 class ArtifactRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -153,6 +165,88 @@ class ArtifactRead(BaseModel):
     updated_at: datetime
 
 
+<<<<<<< Updated upstream
+=======
+class ArtifactDetailRead(ArtifactRead):
+    versions: list[ArtifactVersionRead] = Field(default_factory=list)
+    current_version: ArtifactVersionRead | None = None
+
+
+class ArtifactVersionCreate(BaseModel):
+    payload: dict = Field(default_factory=dict)
+    source_requirement_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class ArtifactStatusUpdate(BaseModel):
+    status: ReviewStatus
+
+
+# AI Generation Schemas (Engineer 2)
+class UserStoriesGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000, description="Optional RAG search query")
+
+
+class AcceptanceCriteriaGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class TestCasesGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class ApiSpecGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class UnifiedGenerateRequest(BaseModel):
+    artifact_type: ArtifactType
+    title: str | None = Field(default=None, max_length=300)
+    requirement_ids: list[uuid.UUID] | None = None
+    query: str | None = Field(default=None, max_length=1000)
+
+
+class WorkItemCreate(BaseModel):
+    record_type: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=300)
+    status: str | None = Field(default=None, max_length=80)
+    payload: dict = Field(default_factory=dict)
+    source_ids: list[uuid.UUID] = Field(default_factory=list)
+    parent_id: uuid.UUID | None = None
+
+
+class WorkItemUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    status: str | None = Field(default=None, max_length=80)
+    payload: dict | None = None
+    source_ids: list[uuid.UUID] | None = None
+    parent_id: uuid.UUID | None = None
+
+
+class WorkItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    record_type: str
+    title: str
+    status: str | None
+    payload: dict
+    source_ids: list
+    parent_id: uuid.UUID | None
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+>>>>>>> Stashed changes
 # Audit Log Schemas
 class AuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
