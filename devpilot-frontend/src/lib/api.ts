@@ -56,6 +56,29 @@ export interface ApiWorkItem {
   updated_at: string;
 }
 
+export interface ApiArtifactVersion {
+  id: string;
+  artifact_id: string;
+  version_number: number;
+  payload: Record<string, unknown>;
+  source_requirement_ids: string[];
+  created_by: string;
+  created_at: string;
+  change_summary: string | null;
+}
+
+export interface ApiArtifact {
+  id: string;
+  project_id: string;
+  artifact_type: string;
+  title: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  current_version: ApiArtifactVersion | null;
+}
+
 class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
 
@@ -282,6 +305,87 @@ class ApiClient {
     if (params?.entity_type) query.set('entity_type', params.entity_type);
     const queryString = query.toString() ? `?${query.toString()}` : '';
     return this.request<ApiAuditLog[]>(`/audit-logs${queryString}`);
+  }
+
+  // Engineer 2 Artifact Engine Methods
+  public async generateUserStories(
+    projectId: string,
+    payload: { title: string; requirement_ids?: string[]; query?: string; instructions?: string },
+  ): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/generate/user-stories`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async generateAcceptanceCriteria(
+    projectId: string,
+    payload: { title: string; requirement_ids?: string[]; query?: string; instructions?: string },
+  ): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/generate/acceptance-criteria`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async generateTestCases(
+    projectId: string,
+    payload: { title: string; requirement_ids?: string[]; query?: string; instructions?: string },
+  ): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/generate/test-cases`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async generateApiSpec(
+    projectId: string,
+    payload: { title: string; requirement_ids?: string[]; query?: string; instructions?: string },
+  ): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/generate/api-spec`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async generateUnified(
+    projectId: string,
+    payload: { title_prefix: string; requirement_ids?: string[]; query?: string; instructions?: string },
+  ): Promise<ApiArtifact[]> {
+    return this.request<ApiArtifact[]>(`/projects/${projectId}/artifacts/generate/unified`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async getArtifact(projectId: string, artifactId: string): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/${artifactId}`);
+  }
+
+  public async listArtifactVersions(projectId: string, artifactId: string): Promise<ApiArtifactVersion[]> {
+    return this.request<ApiArtifactVersion[]>(`/projects/${projectId}/artifacts/${artifactId}/versions`);
+  }
+
+  public async createArtifactVersion(
+    projectId: string,
+    artifactId: string,
+    payload: { payload: Record<string, unknown>; source_requirement_ids?: string[]; change_summary?: string },
+  ): Promise<ApiArtifactVersion> {
+    return this.request<ApiArtifactVersion>(`/projects/${projectId}/artifacts/${artifactId}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateArtifactStatus(
+    projectId: string,
+    artifactId: string,
+    status: 'draft' | 'in_review' | 'accepted' | 'rejected',
+  ): Promise<ApiArtifact> {
+    return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/${artifactId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
   }
 }
 

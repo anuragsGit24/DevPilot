@@ -2,7 +2,6 @@ import enum
 import uuid
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -19,6 +18,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
+
+try:
+    from pgvector.sqlalchemy import Vector
+    EmbeddingType = Vector(768).with_variant(JSON(), "sqlite")
+except ImportError:
+    EmbeddingType = JSON().with_variant(JSON(), "sqlite")
 
 
 class Base(DeclarativeBase):
@@ -66,7 +71,6 @@ class MoSCoWPriority(str, enum.Enum):
 
 
 JsonType = JSONB().with_variant(JSON(), "sqlite")
-EmbeddingType = Vector(768).with_variant(JSON(), "sqlite")
 
 
 class User(Base):

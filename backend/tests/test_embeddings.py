@@ -31,12 +31,14 @@ def test_local_encoder_rejects_wrong_dimensions() -> None:
 
 def test_model_load_failure_is_explicit() -> None:
     _load_model.cache_clear()
-    with patch("app.ingestion.embeddings.get_settings") as settings:
+    sentence_transformers = Mock()
+    sentence_transformers.SentenceTransformer.side_effect = OSError("missing")
+    with (
+        patch.dict("sys.modules", {"torch": Mock(), "sentence_transformers": sentence_transformers}),
+        patch("app.ingestion.embeddings.get_settings") as settings,
+    ):
         settings.return_value.embedding_model = "missing-model"
         settings.return_value.embedding_device = "cpu"
-        with patch(
-            "sentence_transformers.SentenceTransformer",
-            side_effect=OSError("missing"),
-        ), pytest.raises(EmbeddingProviderError, match="Unable to load"):
+        with pytest.raises(EmbeddingProviderError, match="Unable to load"):
             _load_model()
     _load_model.cache_clear()
