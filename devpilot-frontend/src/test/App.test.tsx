@@ -3,8 +3,9 @@ import { render, screen } from '@testing-library/react';
 import App from '../App';
 
 describe('DevPilot Frontend Application', () => {
-  it('renders application shell and core branding', () => {
+  it('renders application shell and core branding', async () => {
     render(<App />);
-    expect(screen.getAllByText(/DevPilot/i).length).toBeGreaterThan(0);
+    const matches = await screen.findAllByText(/DevPilot/i);
+    expect(matches.length).toBeGreaterThan(0);
   });
 });
