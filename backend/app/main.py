@@ -6,7 +6,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import artifacts, audit, auth, health, projects
+from app.api import artifacts, audit, auth, health, projects, requirements, work_items
 from app.core.config import get_settings
 from app.schemas import ErrorBody, ErrorDetail, ErrorResponse
 
@@ -29,6 +29,8 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(artifacts.router, prefix="/api/v1")
+app.include_router(work_items.router, prefix="/api/v1")
+app.include_router(requirements.router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

@@ -53,7 +53,7 @@ export function ArchitecturePage() {
           { id: 'stack', label: 'Tech Stack & Components', count: components.length },
           { id: 'adrs', label: 'Architectural Decision Records (ADRs)', count: decisions.length },
           { id: 'risks', label: 'Security & Risk Matrix', count: risks.length },
-          { id: 'tradeoffs', label: 'Tradeoff Evaluations', count: architecture?.alternatives.length ?? 0 },
+          { id: 'tradeoffs', label: 'Tradeoff Evaluations', count: architecture?.alternatives?.length ?? 0 },
         ].map((tab) => (
           <button
             key={tab.id}

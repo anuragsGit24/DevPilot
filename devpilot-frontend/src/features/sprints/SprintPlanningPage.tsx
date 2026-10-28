@@ -18,10 +18,12 @@ export function SprintPlanningPage() {
   const { sprints, userStories, assignStoryToSprint, createSprint } = useProjectData();
   const { toast } = useToast();
 
-  const [activeSprintId, setActiveSprintId] = useState<string>('sprint-002');
+  const [activeSprintId, setActiveSprintId] = useState<string>('');
   const [newSprintOpen, setNewSprintOpen] = useState(false);
 
-  const activeSprint = sprints.find((s) => s.id === activeSprintId) ?? sprints[0];
+  const activeSprint = sprints.find((s) => s.id === activeSprintId)
+    ?? sprints.find((s) => s.status === 'active')
+    ?? sprints[0];
 
   // Stories currently assigned to the active sprint
   const assignedStories = userStories.filter((s) => (activeSprint?.userStoryIds ?? []).includes(s.id));

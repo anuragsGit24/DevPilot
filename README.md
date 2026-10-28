@@ -35,23 +35,192 @@ DevPilot is a human-in-the-loop SDLC assistant that transforms public/synthetic 
 
 ## Quick Start
 
-### 1. Backend with Local or GCP Database
-```bash
-# Local Docker Postgres:
-docker compose up --build
+### Prerequisites
 
-# Or with GCP Cloud SQL ($300 Credit Project):
-docker compose -f docker-compose.gcp.yml up --build
+- Docker Desktop with the Linux engine enabled.
+- Node.js LTS and npm (or pnpm).
+- A Gemini API key for the default embedding provider.
+- Git.
+
+### 1. Configure the Gemini Embeddings API
+
+Copy the backend environment template:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
 ```
 
-### 2. Frontend Development Server
-```bash
+Edit `backend\.env` and replace the placeholder:
+
+```env
+DEVPILOT_EMBEDDING_API_KEY=your-real-gemini-api-key
+```
+
+Create a key at [Google AI Studio](https://aistudio.google.com/apikey).
+Never commit `backend\.env` or paste an API key into `.env.example`.
+
+The default provider is Google's `gemini-embedding-2` API. The default Docker
+build does not install PyTorch, CUDA, or Sentence Transformers. Local
+EmbeddingGemma remains available as an opt-in provider; see the
+[backend connection guide](docs/BACKEND_CONNECTION_GUIDE.md).
+
+### 2. Start the backend and local PostgreSQL
+
+From the repository root:
+
+```powershell
+docker compose build api
+docker compose up -d
+docker compose ps
+```
+
+The Compose stack uses PostgreSQL 16 with pgvector. The API automatically runs
+Alembic migrations before starting.
+
+Verify the services:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/v1/health/live
+docker compose exec postgres pg_isready -U devpilot -d devpilot
+```
+
+The API documentation is available at
+[http://localhost:8000/docs](http://localhost:8000/docs).
+
+To inspect startup errors:
+
+```powershell
+docker compose logs --tail 100 api
+```
+
+### 3. Start the frontend
+
+Open a second terminal:
+
+```powershell
 cd devpilot-frontend
 npm install
 npm run dev
 ```
 
-### 3. Run Backend Automated Test Suite
-```bash
-python -m pytest backend/tests
+Open [http://localhost:5173](http://localhost:5173).
+
+### 4. Run the backend tests
+
+From the repository root:
+
+```powershell
+cd backend
+python -m pip install -e ".[dev]"
+python -m ruff check app tests migrations
+python -m pytest tests
 ```
+
+### 5. Test document ingestion and semantic search
+
+Register a test user:
+
+```powershell
+$registerBody = @{
+    name = "Test Analyst"
+    email = "analyst@example.com"
+    password = "TestPassword123!"
+    role = "business_analyst"
+} | ConvertTo-Json
+
+try {
+    Invoke-RestMethod `
+        -Method Post `
+        -Uri "http://localhost:8000/api/v1/auth/register" `
+        -ContentType "application/json" `
+        -Body $registerBody
+}
+catch {
+    Write-Host "User may already exist; continuing to login."
+}
+```
+
+Log in and select the automatically created workspace:
+
+```powershell
+$loginBody = @{
+    email = "analyst@example.com"
+    password = "TestPassword123!"
+} | ConvertTo-Json
+
+$login = Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8000/api/v1/auth/login" `
+    -ContentType "application/json" `
+    -Body $loginBody
+
+$token = $login.access_token
+$headers = @{ Authorization = "Bearer $token" }
+
+$projects = Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/projects" `
+    -Headers $headers
+
+$projectId = $projects[0].id
+```
+
+Create a sample requirements file:
+
+```powershell
+@'
+The system must allow users to register with an email address and password.
+The system shall authenticate users securely.
+The application should return dashboard results within two seconds.
+The system must encrypt passwords before storing them.
+The dashboard should provide an accessible interface for screen-reader users.
+'@ | Set-Content -Encoding utf8 requirements.txt
+```
+
+Upload it:
+
+```powershell
+$uploadRaw = curl.exe `
+    -s `
+    -X POST `
+    "http://localhost:8000/api/v1/projects/$projectId/requirements/upload" `
+    -H "Authorization: Bearer $token" `
+    -F "file=@requirements.txt"
+
+$upload = $uploadRaw | ConvertFrom-Json
+$upload | ConvertTo-Json -Depth 10
+```
+
+Successful output includes:
+
+```json
+{
+  "requirements_created": 5,
+  "chunks_created": 5,
+  "embedding_model": "gemini-embedding-2",
+  "embeddings_generated": true
+}
+```
+
+Search the stored embeddings:
+
+```powershell
+$searchBody = @{
+    query = "How are user passwords protected?"
+    limit = 3
+} | ConvertTo-Json
+
+$search = Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8000/api/v1/projects/$projectId/requirements/search" `
+    -Headers $headers `
+    -ContentType "application/json" `
+    -Body $searchBody
+
+$search | ConvertTo-Json -Depth 10
+```
+
+The password-encryption requirement should be among the top results.
+
+For the complete handoff, troubleshooting, optional local Gemma setup, and
+future work, see [Jash embedding updates](Jash_embedding_updates.md).

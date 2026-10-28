@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, DbSession, get_client_ip, require_capability, verify_project_access
 from app.core.audit import record_audit_log
 from app.models import Project, ProjectMember, User, UserRole
-from app.schemas import ProjectCreate, ProjectMemberAdd, ProjectMemberRead, ProjectRead
+from app.schemas import ProjectCreate, ProjectMemberAdd, ProjectMemberRead, ProjectRead, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -80,6 +80,31 @@ async def get_project(
 ) -> Project:
     """Get project details with project-scoped authorization check."""
     return await verify_project_access(project_id, current_user, session, "projects:view")
+
+
+@router.patch("/{project_id}", response_model=ProjectRead)
+async def update_project(
+    request: Request,
+    project_id: uuid.UUID,
+    payload: ProjectUpdate,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> Project:
+    project = await verify_project_access(project_id, current_user, session, "projects:manage")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(project, key, value)
+    await record_audit_log(
+        session=session,
+        action="PROJECT_UPDATED",
+        user_id=current_user.id,
+        entity_type="project",
+        entity_id=str(project.id),
+        entity_title=project.name,
+        ip_address=get_client_ip(request),
+    )
+    await session.commit()
+    await session.refresh(project)
+    return project
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberRead, status_code=status.HTTP_201_CREATED)

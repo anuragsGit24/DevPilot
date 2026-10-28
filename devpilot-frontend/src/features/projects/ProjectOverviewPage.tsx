@@ -163,7 +163,7 @@ export function ProjectOverviewPage() {
                   <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs uppercase">
-                        {doc.mimeType.includes('pdf') ? 'PDF' : 'DOC'}
+                        {(doc.mimeType ?? '').includes('pdf') ? 'PDF' : 'DOC'}
                       </div>
                       <div>
                         <p className="text-xs font-semibold text-slate-900">{doc.filename}</p>

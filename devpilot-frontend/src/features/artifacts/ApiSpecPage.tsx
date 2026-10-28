@@ -10,6 +10,7 @@ import {
   ExternalLink, Copy,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import type { ApiEndpoint } from '@/types/domain';
 
 const methodColors: Record<string, string> = {
   get: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -32,7 +33,20 @@ export function ApiSpecPage() {
     setExpandedEndpoints((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const endpoints = apiSpec?.endpoints ?? [];
+  const endpoints = (apiSpec?.endpoints ?? []).map((endpoint) => ({
+    ...endpoint,
+    method: String(endpoint.method ?? 'GET').toUpperCase() as ApiEndpoint['method'],
+    path: endpoint.path ?? '',
+    summary: endpoint.summary ?? '',
+    description: endpoint.description ?? '',
+    tags: Array.isArray(endpoint.tags) ? endpoint.tags : [],
+    responses: endpoint.responses && typeof endpoint.responses === 'object'
+      ? Object.fromEntries(Object.entries(endpoint.responses).map(([code, response]) => [
+        code,
+        { description: typeof response?.description === 'string' ? response.description : 'No description provided.' },
+      ]))
+      : { default: { description: 'No response schema provided.' } },
+  }));
   const filteredEndpoints = endpoints.filter((ep) => {
     const searchLower = search.toLowerCase();
     return (
@@ -97,7 +111,7 @@ export function ApiSpecPage() {
         <Card>
           <CardBody className="p-0">
             <CodeBlock
-              code={apiSpec.rawYaml}
+              code={apiSpec?.rawYaml ?? '# No OpenAPI YAML has been generated yet.'}
               language="yaml"
               title="openapi.yaml (OAS 3.1)"
               maxHeight="600px"
@@ -176,7 +190,7 @@ export function ApiSpecPage() {
                             >
                               {statusCode}
                             </span>
-                            <span className="text-slate-700">{resp.description}</span>
+                            <span className="text-slate-700">{resp?.description ?? 'No description provided.'}</span>
                           </div>
                         ))}
                       </div>

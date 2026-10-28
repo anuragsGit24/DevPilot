@@ -8,13 +8,12 @@ import { ROLE_LABELS, ROLE_COLORS, ROLE_CAPABILITIES, ALL_CAPABILITIES } from '@
 import { formatDate } from '@/lib/date';
 import {
   User, Shield, Key, CheckCircle2, XCircle,
-  AlertTriangle,
 } from 'lucide-react';
 import type { UserRole } from '@/types/domain';
 import { AppearanceSettings } from '@/features/settings/AppearanceSettings';
 
 export function ProfilePage() {
-  const { user, switchRole, demoUsers } = useAuth();
+  const { user } = useAuth();
 
   if (!user) return null;
 
@@ -43,37 +42,6 @@ export function ProfilePage() {
       </div>
 
       <AppearanceSettings />
-
-      {/* Quick Demo Persona Switcher */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-amber-500" />
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Emulate Enterprise Role (Demo Mode)</h2>
-              <p className="text-2xs text-slate-500">Switch persona on the fly to inspect role-gated UI capabilities</p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardBody>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {demoUsers.map((du) => (
-              <button
-                key={du.id}
-                onClick={() => switchRole(du.role)}
-                className={`p-3 rounded-lg border text-left text-xs transition-all ${
-                  user.role === du.role
-                    ? 'border-blue-600 bg-blue-50/70 text-blue-900 ring-2 ring-blue-600/20'
-                    : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="font-semibold truncate">{du.name.split(' ')[0]}</div>
-                <div className="text-2xs text-slate-500 mt-0.5">{ROLE_LABELS[du.role]}</div>
-              </button>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
 
       {/* RBAC Capabilities Checklist */}
       <Card>

@@ -21,24 +21,12 @@ import type {
   UserRole,
 } from '@/types/domain';
 import {
-  MOCK_PROJECTS,
-  MOCK_DOCUMENTS,
-  MOCK_REQUIREMENTS,
-  MOCK_USER_STORIES,
-  MOCK_ACCEPTANCE_CRITERIA,
-  MOCK_TEST_CASES,
-  MOCK_API_SPEC,
-  MOCK_ARCHITECTURE,
-  MOCK_SPRINTS,
-  MOCK_PROMPTS,
-  MOCK_EVALUATION_RUNS,
   MOCK_CASE_STUDY,
-  MOCK_ACTIVITIES,
-  MOCK_ASSISTANT_CONVERSATION,
-  MOCK_DASHBOARD,
 } from '@/mocks/seed-data/project-retail-banking';
 import { sleep, generateId } from '@/lib/utils';
 import { useToast } from './ToastProvider';
+import { useAuth } from './AuthProvider';
+import { api, type ApiProject, type ApiWorkItem } from '@/lib/api';
 
 interface ProjectDataContextType {
   // Projects
@@ -105,7 +93,7 @@ interface ProjectDataContextType {
   runEvaluation: (name: string, dataset: string, projectId?: string) => Promise<EvaluationRun>;
 
   // Case Study & Dashboard
-  caseStudy: CaseStudyComparison;
+  caseStudy: CaseStudyComparison | null;
   dashboard: DashboardSummary;
   activities: ActivityEntry[];
 
@@ -120,69 +108,352 @@ interface ProjectDataContextType {
 
 const ProjectDataContext = createContext<ProjectDataContextType | null>(null);
 
-const STORAGE_KEY_PREFIX = 'devpilot_data_v3_';
+const EMPTY_PROJECT: Project = {
+  id: '',
+  name: '',
+  description: '',
+  status: 'active',
+  createdBy: '',
+  createdAt: '',
+  updatedAt: '',
+  memberCount: 0,
+  requirementCount: 0,
+  artifactCount: 0,
+  pendingReviewCount: 0,
+  qualityScore: 0,
+  tags: [],
+};
 
-function loadOrSeed<T>(key: string, fallback: T): T {
-  try {
-    const item = localStorage.getItem(STORAGE_KEY_PREFIX + key);
-    return item ? JSON.parse(item) : fallback;
-  } catch {
-    return fallback;
-  }
+const EMPTY_DASHBOARD: DashboardSummary = {
+  projectId: '',
+  health: 'good',
+  requirementCount: 0,
+  confirmedRequirements: 0,
+  artifactCounts: {
+    user_stories: 0,
+    acceptance_criteria: 0,
+    test_cases: 0,
+    api_specification: 0,
+    architecture_recommendation: 0,
+    sprint_plan: 0,
+    case_study_report: 0,
+  },
+  pendingReviewCount: 0,
+  qualityScore: 0,
+  activeSprintProgress: 0,
+  recentActivity: [],
+  evaluationTrend: [],
+  promptPerformance: [],
+  warnings: [],
+};
+
+const EMPTY_ASSISTANT_CONVERSATION: AssistantConversation = {
+  id: '',
+  projectId: '',
+  userId: '',
+  title: '',
+  messages: [],
+  createdAt: '',
+  updatedAt: '',
+};
+
+function mapProject(project: ApiProject, counts: { requirements: number; artifacts: number }): Project {
+  return {
+    ...EMPTY_PROJECT,
+    id: project.id,
+    name: project.name,
+    description: project.description ?? '',
+    createdBy: project.created_by,
+    createdAt: project.created_at,
+    updatedAt: project.updated_at,
+    requirementCount: counts.requirements,
+    artifactCount: counts.artifacts,
+  };
 }
 
-function save<T>(key: string, val: T): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(val));
-  } catch {
-    // localStorage full or disabled
+function mapWorkItem<T extends object>(item: ApiWorkItem): T {
+  const payload = item.payload && typeof item.payload === 'object'
+    ? { ...(item.payload as Record<string, unknown>) }
+    : {};
+  const arrayDefaults: Record<string, string[]> = {
+    user_story: ['history', 'sourceRequirementIds'],
+    acceptance_criteria: ['scenarios', 'history'],
+    test_case: ['preconditions', 'steps', 'history'],
+    document: ['sections', 'history'],
+    api_specification: ['endpoints', 'history'],
+    architecture: ['components', 'decisions', 'risks', 'alternatives', 'history'],
+    sprint: ['userStoryIds'],
+    prompt: ['versions', 'variables'],
+    evaluation: ['results', 'history'],
+    assistant_conversation: ['messages'],
+  };
+  for (const key of arrayDefaults[item.record_type] ?? []) {
+    if (!Array.isArray(payload[key])) payload[key] = [];
   }
+  if (item.record_type === 'prompt') {
+    payload.name = typeof payload.name === 'string' ? payload.name : item.title;
+    payload.description = typeof payload.description === 'string' ? payload.description : '';
+    payload.variables = Array.isArray(payload.variables) ? payload.variables : [];
+    payload.versions = Array.isArray(payload.versions) && payload.versions.length > 0
+      ? payload.versions
+      : [{
+        versionNumber: Number(payload.version ?? 1),
+        status: item.status ?? 'active',
+        variables: payload.variables,
+      }];
+    payload.activeVersion = Number(payload.activeVersion ?? payload.version ?? 1);
+  }
+  if (item.record_type === 'document') {
+    payload.filename = typeof payload.filename === 'string' ? payload.filename : item.title;
+    payload.mimeType = typeof payload.mimeType === 'string' ? payload.mimeType : 'text/markdown';
+    payload.parseStatus = payload.parseStatus ?? item.status ?? 'complete';
+    payload.sizeBytes = Number(payload.sizeBytes ?? 0);
+    payload.uploadedBy = payload.uploadedBy ?? item.created_by;
+    payload.uploadedAt = payload.uploadedAt ?? item.created_at;
+    payload.sectionCount = Number(payload.sectionCount ?? 0);
+    payload.extractedRequirementCount = Number(payload.extractedRequirementCount ?? 0);
+  }
+  if (item.record_type === 'requirement') {
+    payload.category = payload.category ?? 'functional';
+    payload.priority = payload.priority ?? 'should';
+    payload.tags = Array.isArray(payload.tags) ? payload.tags : [];
+  }
+  if (item.record_type === 'user_story') {
+    payload.priority = payload.priority ?? 'should';
+    payload.storyPoints = Number(payload.storyPoints ?? 0);
+    payload.title = payload.title ?? item.title;
+  }
+  if (item.record_type === 'test_case') {
+    payload.category = payload.category ?? 'functional';
+    payload.priority = payload.priority ?? 'medium';
+    payload.preconditions = Array.isArray(payload.preconditions) ? payload.preconditions : [];
+    payload.steps = Array.isArray(payload.steps) ? payload.steps : [];
+    payload.expectedResult = payload.expectedResult ?? '';
+  }
+  if (item.record_type === 'sprint') {
+    payload.goal = payload.goal ?? '';
+    payload.userStoryIds = Array.isArray(payload.userStoryIds) ? payload.userStoryIds : [];
+    payload.totalPoints = Number(payload.totalPoints ?? payload.capacityStoryPoints ?? 0);
+    payload.capacityStoryPoints = Number(payload.capacityStoryPoints ?? payload.totalPoints ?? 0);
+    payload.completedPoints = Number(payload.completedPoints ?? 0);
+    payload.allocatedStoryPoints = Number(payload.allocatedStoryPoints ?? 0);
+    payload.targetVelocity = Number(payload.targetVelocity ?? payload.capacityStoryPoints ?? 0);
+    payload.startDate = payload.startDate ?? item.created_at;
+    payload.endDate = payload.endDate ?? item.updated_at;
+  }
+  if (item.record_type === 'api_specification') {
+    payload.title = payload.title ?? item.title;
+    payload.description = payload.description ?? '';
+    payload.openApiVersion = payload.openApiVersion ?? '3.1.0';
+    payload.endpoints = Array.isArray(payload.endpoints) ? payload.endpoints : [];
+  }
+  if (item.record_type === 'architecture') {
+    payload.title = payload.title ?? item.title;
+    payload.summary = payload.summary ?? '';
+    for (const key of ['components', 'decisions', 'risks', 'alternatives']) {
+      if (!Array.isArray(payload[key])) payload[key] = [];
+    }
+  }
+  if (item.record_type === 'evaluation') {
+    payload.name = payload.name ?? item.title;
+    payload.metrics = payload.metrics ?? {
+      accuracy: Number(payload.overallScore ?? 0),
+      completeness: Number(payload.overallScore ?? 0),
+      relevance: Number(payload.overallScore ?? 0),
+      overallScore: Number(payload.overallScore ?? 0),
+    };
+    payload.overallScore = Number(payload.overallScore ?? 0);
+  }
+  return {
+    ...(payload as T),
+    id: typeof payload.id === 'string' ? payload.id : item.id,
+    projectId: item.project_id,
+    title: item.title,
+    status: item.status ?? payload.status,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+    apiId: item.id,
+  } as T;
+}
+
+function getApiId(value: object): string | undefined {
+  return (value as object & { apiId?: string }).apiId;
 }
 
 export function ProjectDataProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
+  const { isAuthenticated, isDemoMode, user } = useAuth();
 
-  const [projects, setProjects] = useState<Project[]>(() => loadOrSeed('projects', MOCK_PROJECTS));
-  const [activeProjectId, setActiveProjectId] = useState<string>('proj-001');
-  const [documents, setDocuments] = useState<SourceDocument[]>(() => loadOrSeed('documents', MOCK_DOCUMENTS));
-  const [requirements, setRequirements] = useState<Requirement[]>(() => loadOrSeed('requirements', MOCK_REQUIREMENTS));
-  const [userStories, setUserStories] = useState<UserStory[]>(() => loadOrSeed('userStories', MOCK_USER_STORIES));
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState<AcceptanceCriteria[]>(() => loadOrSeed('acceptanceCriteria', MOCK_ACCEPTANCE_CRITERIA));
-  const [testCases, setTestCases] = useState<TestCase[]>(() => loadOrSeed('testCases', MOCK_TEST_CASES));
-  const [apiSpec, setApiSpec] = useState<ApiSpecification>(() => loadOrSeed('apiSpec', MOCK_API_SPEC));
-  const [architecture, setArchitecture] = useState<ArchitectureRecommendation>(() => loadOrSeed('architecture', MOCK_ARCHITECTURE));
-  const [sprints, setSprints] = useState<Sprint[]>(() => loadOrSeed('sprints', MOCK_SPRINTS).map((sprint) => {
-    const userStoryIds = sprint.userStoryIds ?? sprint.items?.map((item) => item.storyId) ?? [];
-    const allocatedStoryPoints = userStoryIds.reduce((total, storyId) => (
-      total + (MOCK_USER_STORIES.find((story) => story.id === storyId)?.storyPoints ?? 0)
-    ), 0);
-    return { ...sprint, userStoryIds, allocatedStoryPoints };
-  }));
-  const [prompts, setPrompts] = useState<PromptTemplate[]>(() => loadOrSeed('prompts', MOCK_PROMPTS));
-  const [evaluationRuns, setEvaluationRuns] = useState<EvaluationRun[]>(() => loadOrSeed('evaluations', MOCK_EVALUATION_RUNS));
-  const [caseStudy] = useState<CaseStudyComparison>(MOCK_CASE_STUDY);
-  const [dashboard, setDashboard] = useState<DashboardSummary>(() => loadOrSeed('dashboard', MOCK_DASHBOARD));
-  const [activities, setActivities] = useState<ActivityEntry[]>(() => loadOrSeed('activities', MOCK_ACTIVITIES));
-  const [assistantConversation, setAssistantConversation] = useState<AssistantConversation>(() => loadOrSeed('assistant', MOCK_ASSISTANT_CONVERSATION));
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
+  const [documents, setDocuments] = useState<SourceDocument[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [userStories, setUserStories] = useState<UserStory[]>([]);
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState<AcceptanceCriteria[]>([]);
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [apiSpec, setApiSpec] = useState<ApiSpecification>({} as ApiSpecification);
+  const [architecture, setArchitecture] = useState<ArchitectureRecommendation>({} as ArchitectureRecommendation);
+  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
+  const [evaluationRuns, setEvaluationRuns] = useState<EvaluationRun[]>([]);
+  const [caseStudy, setCaseStudy] = useState<CaseStudyComparison | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardSummary>(EMPTY_DASHBOARD);
+  const [activities, setActivities] = useState<ActivityEntry[]>([]);
+  const [assistantConversation, setAssistantConversation] = useState<AssistantConversation>(EMPTY_ASSISTANT_CONVERSATION);
   const [isProcessing, setIsProcessing] = useState<Record<string, boolean>>({});
 
-  // Sync state to localStorage
-  useEffect(() => { save('projects', projects); }, [projects]);
-  useEffect(() => { save('documents', documents); }, [documents]);
-  useEffect(() => { save('requirements', requirements); }, [requirements]);
-  useEffect(() => { save('userStories', userStories); }, [userStories]);
-  useEffect(() => { save('acceptanceCriteria', acceptanceCriteria); }, [acceptanceCriteria]);
-  useEffect(() => { save('testCases', testCases); }, [testCases]);
-  useEffect(() => { save('apiSpec', apiSpec); }, [apiSpec]);
-  useEffect(() => { save('architecture', architecture); }, [architecture]);
-  useEffect(() => { save('sprints', sprints); }, [sprints]);
-  useEffect(() => { save('prompts', prompts); }, [prompts]);
-  useEffect(() => { save('evaluations', evaluationRuns); }, [evaluationRuns]);
-  useEffect(() => { save('dashboard', dashboard); }, [dashboard]);
-  useEffect(() => { save('activities', activities); }, [activities]);
-  useEffect(() => { save('assistant', assistantConversation); }, [assistantConversation]);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setProjects([]);
+      setActiveProjectId('');
+      setDocuments([]);
+      setRequirements([]);
+      setUserStories([]);
+      setAcceptanceCriteria([]);
+      setTestCases([]);
+      setSprints([]);
+      setPrompts([]);
+      setEvaluationRuns([]);
+      setCaseStudy(null);
+      setDashboard(EMPTY_DASHBOARD);
+      setActivities([]);
+      setAssistantConversation(EMPTY_ASSISTANT_CONVERSATION);
+      return;
+    }
+    let cancelled = false;
+    async function loadWorkspace() {
+      try {
+        const apiProjects = await api.listProjects();
+        const loaded = await Promise.all(apiProjects.map(async (project) => {
+          const items = await api.listWorkItems(project.id);
+          if (cancelled) return mapProject(project, { requirements: 0, artifacts: 0 });
+          const requirements = items.filter((item) => item.record_type === 'requirement').length;
+          const artifacts = items.filter((item) => !['document', 'requirement'].includes(item.record_type)).length;
+          return mapProject(project, { requirements, artifacts });
+        }));
+        const items = await Promise.all(apiProjects.map((project) => api.listWorkItems(project.id)));
+        const allItems = items.flat();
+        if (cancelled) return;
+        const dashboardProject = apiProjects.find((project) => project.id === activeProjectId) ?? apiProjects[0];
+        const dashboardItems = allItems.filter((item) => item.project_id === dashboardProject?.id);
+        const countType = (type: string) => dashboardItems.filter((item) => item.record_type === type).length;
+        const requirementItems = dashboardItems.filter((item) => item.record_type === 'requirement');
+        const activeSprint = dashboardItems.find((item) => item.record_type === 'sprint' && item.status === 'active');
+        const activeSprintPayload = activeSprint?.payload ?? {};
+        const sprintCapacity = Number(activeSprintPayload.totalPoints ?? activeSprintPayload.capacityStoryPoints ?? 0);
+        const sprintCompleted = Number(activeSprintPayload.completedPoints ?? 0);
+        const evaluationItems = dashboardItems.filter((item) => item.record_type === 'evaluation');
+        const promptItems = dashboardItems.filter((item) => item.record_type === 'prompt');
+        const qualityScores = evaluationItems
+          .map((item) => Number(item.payload.overallScore ?? 0))
+          .filter((score) => score > 0);
+        const qualityScore = qualityScores.length
+          ? Math.round(qualityScores.reduce((total, score) => total + score, 0) / qualityScores.length)
+          : 0;
+        const demoActivities: ActivityEntry[] = dashboardItems
+          .slice()
+          .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+          .slice(0, 10)
+          .map((item) => ({
+            id: item.id,
+            projectId: item.project_id,
+            userId: item.created_by,
+            userName: 'DevPilot demo',
+            action: 'updated',
+            resourceType: item.record_type,
+            resourceId: item.id,
+            resourceName: item.title,
+            entityTitle: item.title,
+            timestamp: item.updated_at,
+          }));
+        setDashboard({
+          ...EMPTY_DASHBOARD,
+          projectId: dashboardProject?.id ?? '',
+          requirementCount: requirementItems.length,
+          confirmedRequirements: requirementItems.filter((item) => item.status === 'confirmed').length,
+          artifactCounts: {
+            user_stories: countType('user_story'),
+            acceptance_criteria: countType('acceptance_criteria'),
+            test_cases: countType('test_case'),
+            api_specification: countType('api_specification'),
+            architecture_recommendation: countType('architecture'),
+            sprint_plan: countType('sprint'),
+            case_study_report: countType('case_study'),
+          },
+          pendingReviewCount: dashboardItems.filter((item) => item.status === 'in_review').length,
+          qualityScore,
+          activeSprintProgress: sprintCapacity > 0 ? Math.min(100, Math.round(sprintCompleted / sprintCapacity * 100)) : 0,
+          evaluationTrend: evaluationItems.map((item) => ({
+            date: item.updated_at,
+            score: Number(item.payload.overallScore ?? 0),
+          })),
+          promptPerformance: promptItems.map((item) => ({
+            name: String(item.payload.name ?? item.title),
+            score: Number(item.payload.benchmarkScore ?? item.payload.overallScore ?? 0),
+            runs: Number(item.payload.runs ?? 0),
+          })),
+        });
+        setActivities(demoActivities);
+        setCaseStudy(isDemoMode ? MOCK_CASE_STUDY : null);
+        const conversationItem = dashboardItems.find((item) => item.record_type === 'assistant_conversation');
+        if (conversationItem) {
+          const conversation = mapWorkItem<AssistantConversation>(conversationItem);
+          setAssistantConversation({ ...conversation, messages: conversation.messages ?? [] });
+        } else {
+          setAssistantConversation({
+            ...EMPTY_ASSISTANT_CONVERSATION,
+            projectId: dashboardProject?.id ?? '',
+            userId: user?.id ?? '',
+            title: dashboardProject ? `${dashboardProject.name} assistant` : '',
+          });
+        }
+        setProjects(loaded);
+        setActiveProjectId((current) => current && loaded.some((p) => p.id === current) ? current : loaded[0]?.id ?? '');
+        setDocuments(allItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
+        setRequirements(allItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i)));
+        setUserStories(allItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i)));
+        setAcceptanceCriteria(allItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i)));
+        setTestCases(allItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i)));
+        const apiSpecifications = allItems.filter((i) => i.record_type === 'api_specification');
+        const architectures = allItems.filter((i) => i.record_type === 'architecture');
+        setApiSpec(apiSpecifications[0]
+          ? mapWorkItem<ApiSpecification>(apiSpecifications[0])
+          : {} as ApiSpecification);
+        setArchitecture(architectures[0]
+          ? mapWorkItem<ArchitectureRecommendation>(architectures[0])
+          : {} as ArchitectureRecommendation);
+        setSprints(allItems.filter((i) => i.record_type === 'sprint').map((i) => mapWorkItem<Sprint>(i)));
+        setPrompts(allItems.filter((i) => i.record_type === 'prompt').map((i) => mapWorkItem<PromptTemplate>(i)));
+        setEvaluationRuns(allItems.filter((i) => i.record_type === 'evaluation').map((i) => mapWorkItem<EvaluationRun>(i)));
+      } catch (error) {
+        if (!cancelled) toast({ variant: 'error', title: 'Unable to load workspace', description: (error as Error).message });
+      }
+    }
+    void loadWorkspace();
+    return () => { cancelled = true; };
+  }, [activeProjectId, isAuthenticated, isDemoMode, toast, user?.id]);
 
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0];
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? EMPTY_PROJECT;
+
+  const persistItem = useCallback((
+    recordType: string,
+    item: object & { id: string; projectId: string; title?: string; status?: string },
+  ) => {
+    const apiId = getApiId(item);
+    const payload = { ...item } as Record<string, unknown>;
+    delete payload.apiId;
+    const request = apiId
+      ? api.updateWorkItem(item.projectId, apiId, { title: item.title, status: item.status, payload })
+      : api.createWorkItem(item.projectId, {
+        record_type: recordType,
+        title: item.title ?? recordType,
+        status: item.status,
+        payload,
+      });
+    void request.catch((error: Error) => {
+      toast({ variant: 'error', title: 'Changes could not be saved', description: error.message });
+    });
+  }, [toast]);
 
   const logActivity = useCallback((action: string, entityType: ActivityEntry['entityType'], entityId: string, entityTitle: string) => {
     const newEntry: ActivityEntry = {
@@ -201,25 +472,25 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   // Project operations
   const createProject = useCallback((data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => {
-    const newProj: Project = {
-      ...data,
-      id: generateId('proj'),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      memberCount: 1,
-      requirementCount: 0,
-      artifactCount: 0,
-      pendingReviewCount: 0,
-      qualityScore: 0,
-    };
-    setProjects((prev) => [newProj, ...prev]);
-    logActivity('Created new project', 'project', newProj.id, newProj.name);
-    toast({ variant: 'success', title: 'Project created', description: `${newProj.name} is ready.` });
+    const newProj: Project = { ...EMPTY_PROJECT, ...data, id: generateId('pending-project') };
+    void api.createProject({ name: data.name, description: data.description }).then((created) => {
+      const persisted = mapProject(created, { requirements: 0, artifacts: 0 });
+      setProjects((prev) => [persisted, ...prev.filter((project) => project.id !== newProj.id)]);
+      setActiveProjectId(persisted.id);
+    }).catch((error: Error) => {
+      toast({ variant: 'error', title: 'Project could not be created', description: error.message });
+    });
     return newProj;
-  }, [logActivity, toast]);
+  }, [toast]);
 
   const updateProject = useCallback((id: string, updates: Partial<Project>) => {
-    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)));
+    void api.updateProject(id, { name: updates.name, description: updates.description }).then((updated) => {
+      setProjects((prev) => prev.map((project) => project.id === id
+        ? { ...project, ...mapProject(updated, { requirements: project.requirementCount, artifacts: project.artifactCount }) }
+        : project));
+    }).catch((error: Error) => {
+      toast({ variant: 'error', title: 'Project could not be updated', description: error.message });
+    });
     toast({ variant: 'info', title: 'Project updated' });
   }, [toast]);
 
@@ -253,15 +524,31 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   // Requirements
   const updateRequirementStatus = useCallback((id: string, status: RequirementStatus) => {
+    const requirement = requirements.find((item) => item.id === id);
+    if (requirement && getApiId(requirement)) {
+      void api.updateWorkItem(requirement.projectId, getApiId(requirement)!, { status }).catch((error: Error) => {
+        toast({ variant: 'error', title: 'Requirement status could not be saved', description: error.message });
+      });
+    }
     setRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, status, updatedAt: new Date().toISOString() } : r)));
     logActivity(`Changed status to ${status}`, 'requirement', id, id);
     toast({ variant: 'success', title: 'Status updated', description: `Requirement ${id} marked as ${status}.` });
-  }, [logActivity, toast]);
+  }, [logActivity, requirements, toast]);
 
   const updateRequirement = useCallback((id: string, updates: Partial<Requirement>) => {
+    const requirement = requirements.find((item) => item.id === id);
+    if (requirement && getApiId(requirement)) {
+      void api.updateWorkItem(requirement.projectId, getApiId(requirement)!, {
+        title: updates.title,
+        payload: { ...requirement, ...updates },
+        status: updates.status,
+      }).catch((error: Error) => {
+        toast({ variant: 'error', title: 'Requirement could not be saved', description: error.message });
+      });
+    }
     setRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r)));
     toast({ variant: 'info', title: 'Requirement saved' });
-  }, [toast]);
+  }, [requirements, toast]);
 
   const addRequirement = useCallback((req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newReq: Requirement = {
@@ -271,6 +558,18 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       updatedAt: new Date().toISOString(),
     };
     setRequirements((prev) => [newReq, ...prev]);
+    void api.createWorkItem(req.projectId, {
+      record_type: 'requirement',
+      title: newReq.title ?? 'Requirement',
+      status: newReq.status,
+      payload: newReq as unknown as Record<string, unknown>,
+      source_ids: newReq.sourceDocumentId ? [newReq.sourceDocumentId] : [],
+    }).then((created) => {
+      setRequirements((prev) => prev.map((item) => item.id === newReq.id ? mapWorkItem<Requirement>(created) : item));
+    }).catch((error: Error) => {
+      setRequirements((prev) => prev.filter((item) => item.id !== newReq.id));
+      toast({ variant: 'error', title: 'Requirement could not be created', description: error.message });
+    });
     logActivity('Added requirement', 'requirement', newReq.id, newReq.title ?? newReq.id);
     toast({ variant: 'success', title: 'Requirement created', description: newReq.title });
     return newReq;
@@ -319,20 +618,24 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   // User Stories
   const updateUserStory = useCallback((id: string, updates: Partial<UserStory>) => {
+    const item = userStories.find((story) => story.id === id);
+    if (item) persistItem('user_story', { ...item, ...updates });
     setUserStories((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s)));
     toast({ variant: 'info', title: 'User story updated' });
-  }, [toast]);
+  }, [persistItem, toast, userStories]);
 
   const updateUserStoryStatus = useCallback((id: string, status: ArtifactStatus) => {
+    const item = userStories.find((story) => story.id === id);
+    if (item) persistItem('user_story', { ...item, status });
     setUserStories((prev) => prev.map((s) => (s.id === id ? { ...s, status, updatedAt: new Date().toISOString() } : s)));
     logActivity(`User story marked ${status}`, 'user_story', id, id);
     toast({ variant: 'success', title: 'Story status changed', description: `${id} is now ${status}.` });
-  }, [logActivity, toast]);
+  }, [logActivity, persistItem, toast, userStories]);
 
   const generateUserStories = useCallback(async (requirementIds: string[]) => {
     setIsProcessing((prev) => ({ ...prev, generateStories: true }));
     await sleep(1500);
-    const generated: UserStory[] = requirementIds.map((reqId, idx) => {
+    const generated: UserStory[] = requirementIds.map((reqId) => {
       const parentReq = requirements.find((r) => r.id === reqId);
       const title = parentReq ? `Enable ${parentReq.title}` : `User Story for ${reqId}`;
       return {
@@ -358,21 +661,26 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       };
     });
     setUserStories((prev) => [...generated, ...prev]);
+    generated.forEach((item) => persistItem('user_story', item));
     setIsProcessing((prev) => ({ ...prev, generateStories: false }));
     toast({ variant: 'success', title: 'AI Generation Finished', description: `Generated ${generated.length} user stories.` });
     return generated;
-  }, [activeProjectId, requirements, toast]);
+  }, [activeProjectId, persistItem, requirements, toast]);
 
   // Acceptance Criteria
   const updateAcceptanceCriteria = useCallback((id: string, updates: Partial<AcceptanceCriteria>) => {
+    const item = acceptanceCriteria.find((criteria) => criteria.id === id);
+    if (item) persistItem('acceptance_criteria', { ...item, ...updates });
     setAcceptanceCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c)));
     toast({ variant: 'info', title: 'Acceptance criteria updated' });
-  }, [toast]);
+  }, [acceptanceCriteria, persistItem, toast]);
 
   const updateAcceptanceCriteriaStatus = useCallback((id: string, status: ArtifactStatus) => {
+    const item = acceptanceCriteria.find((criteria) => criteria.id === id);
+    if (item) persistItem('acceptance_criteria', { ...item, status });
     setAcceptanceCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, status, updatedAt: new Date().toISOString() } : c)));
     toast({ variant: 'success', title: 'Criteria status updated', description: `${id} set to ${status}.` });
-  }, [toast]);
+  }, [acceptanceCriteria, persistItem, toast]);
 
   const generateAcceptanceCriteria = useCallback(async (userStoryIds: string[]) => {
     setIsProcessing((prev) => ({ ...prev, generateCriteria: true }));
@@ -394,21 +702,26 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       updatedAt: new Date().toISOString(),
     }));
     setAcceptanceCriteria((prev) => [...newItems, ...prev]);
+    newItems.forEach((item) => persistItem('acceptance_criteria', item));
     setIsProcessing((prev) => ({ ...prev, generateCriteria: false }));
     toast({ variant: 'success', title: 'Generated Gherkin Criteria', description: `Generated ${newItems.length} acceptance criteria.` });
     return newItems;
-  }, [activeProjectId, toast]);
+  }, [activeProjectId, persistItem, toast]);
 
   // Test Cases
   const updateTestCase = useCallback((id: string, updates: Partial<TestCase>) => {
+    const item = testCases.find((testCase) => testCase.id === id);
+    if (item) persistItem('test_case', { ...item, ...updates });
     setTestCases((prev) => prev.map((tc) => (tc.id === id ? { ...tc, ...updates, updatedAt: new Date().toISOString() } : tc)));
     toast({ variant: 'info', title: 'Test case updated' });
-  }, [toast]);
+  }, [persistItem, testCases, toast]);
 
   const updateTestCaseStatus = useCallback((id: string, status: ArtifactStatus) => {
+    const item = testCases.find((testCase) => testCase.id === id);
+    if (item) persistItem('test_case', { ...item, status });
     setTestCases((prev) => prev.map((tc) => (tc.id === id ? { ...tc, status, updatedAt: new Date().toISOString() } : tc)));
     toast({ variant: 'success', title: 'Test case status updated' });
-  }, [toast]);
+  }, [persistItem, testCases, toast]);
 
   const generateTestCases = useCallback(async (criteriaIds: string[]) => {
     setIsProcessing((prev) => ({ ...prev, generateTests: true }));
@@ -444,18 +757,21 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       updatedAt: new Date().toISOString(),
     }));
     setTestCases((prev) => [...newTests, ...prev]);
+    newTests.forEach((item) => persistItem('test_case', item));
     setIsProcessing((prev) => ({ ...prev, generateTests: false }));
     toast({ variant: 'success', title: 'Test Cases Generated', description: `Created ${newTests.length} executable test cases.` });
     return newTests;
-  }, [activeProjectId, toast]);
+  }, [activeProjectId, persistItem, toast]);
 
   // API Spec
   const updateApiSpec = useCallback((spec: ApiSpecification) => {
+    persistItem('api_specification', spec);
     setApiSpec(spec);
     toast({ variant: 'info', title: 'API Specification saved' });
-  }, [toast]);
+  }, [persistItem, toast]);
 
-  const generateApiEndpoints = useCallback(async (_storyIds: string[]) => {
+  const generateApiEndpoints = useCallback(async (storyIds: string[]) => {
+    void storyIds;
     setIsProcessing((prev) => ({ ...prev, generateApi: true }));
     await sleep(1600);
     setIsProcessing((prev) => ({ ...prev, generateApi: false }));
@@ -464,9 +780,10 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   // Architecture
   const updateArchitecture = useCallback((arch: ArchitectureRecommendation) => {
+    persistItem('architecture', arch);
     setArchitecture(arch);
     toast({ variant: 'info', title: 'Architecture updated' });
-  }, [toast]);
+  }, [persistItem, toast]);
 
   const generateArchitectureRecommendation = useCallback(async () => {
     setIsProcessing((prev) => ({ ...prev, generateArch: true }));
@@ -477,9 +794,11 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   // Sprints
   const updateSprint = useCallback((id: string, updates: Partial<Sprint>) => {
+    const item = sprints.find((sprint) => sprint.id === id);
+    if (item) persistItem('sprint', { ...item, ...updates });
     setSprints((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     toast({ variant: 'info', title: 'Sprint updated' });
-  }, [toast]);
+  }, [persistItem, sprints, toast]);
 
   const createSprint = useCallback((sprintData: Omit<Sprint, 'id' | 'createdAt'>) => {
     const newSprint: Sprint = {
@@ -531,7 +850,9 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     return newP;
   }, [toast]);
 
-  const testPrompt = useCallback(async (_promptId: string, _variables: Record<string, string>) => {
+  const testPrompt = useCallback(async (promptId: string, variables: Record<string, string>) => {
+    void promptId;
+    void variables;
     await sleep(1000);
     return JSON.stringify(
       {
@@ -587,7 +908,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     };
     setAssistantConversation((prev) => ({
       ...prev,
-      messages: [...prev.messages, userMsg],
+      messages: [...(prev.messages ?? []), userMsg],
       updatedAt: new Date().toISOString(),
     }));
 
@@ -597,42 +918,22 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     const botMsg: ChatMessage = {
       id: generateId('msg'),
       sender: 'assistant',
-      text: `Based on your query: "${text}", I cross-referenced the RetailBanking v2.0 requirements and artifacts.\n\nKey observations:\n- REQ-001 (Biometric Auth) is confirmed and mapped to US-001.\n- 2 acceptance criteria in Gherkin syntax are ready for review.\n- Sprint 2 currently holds 47 story points against a 34-point velocity ceiling. Would you like me to suggest stories to defer to Sprint 3?`,
-      sourceArtifacts: [
-        { type: 'requirement', id: 'req-001', title: 'Biometric Authentication' },
-        { type: 'user_story', id: 'us-001', title: 'Biometric Login' },
-      ],
+      text: `I received your question about ${activeProject.name || 'this workspace'}, but the project-connected assistant service is not configured yet.`,
+      sourceArtifacts: [],
       isMock: true,
       timestamp: new Date().toISOString(),
     };
 
     setAssistantConversation((prev) => ({
       ...prev,
-      messages: [...prev.messages, botMsg],
+      messages: [...(prev.messages ?? []), botMsg],
       updatedAt: new Date().toISOString(),
     }));
     setIsProcessing((prev) => ({ ...prev, assistantTyping: false }));
-  }, []);
+  }, [activeProject.name]);
 
   const resetAllData = useCallback(() => {
-    Object.keys(localStorage).forEach((k) => {
-      if (k.startsWith(STORAGE_KEY_PREFIX)) localStorage.removeItem(k);
-    });
-    setProjects(MOCK_PROJECTS);
-    setDocuments(MOCK_DOCUMENTS);
-    setRequirements(MOCK_REQUIREMENTS);
-    setUserStories(MOCK_USER_STORIES);
-    setAcceptanceCriteria(MOCK_ACCEPTANCE_CRITERIA);
-    setTestCases(MOCK_TEST_CASES);
-    setApiSpec(MOCK_API_SPEC);
-    setArchitecture(MOCK_ARCHITECTURE);
-    setSprints(MOCK_SPRINTS);
-    setPrompts(MOCK_PROMPTS);
-    setEvaluationRuns(MOCK_EVALUATION_RUNS);
-    setDashboard(MOCK_DASHBOARD);
-    setActivities(MOCK_ACTIVITIES);
-    setAssistantConversation(MOCK_ASSISTANT_CONVERSATION);
-    toast({ variant: 'info', title: 'Data reset', description: 'Restored original synthetic benchmark dataset.' });
+    toast({ variant: 'info', title: 'Data reset unavailable', description: 'Canonical workspace data is managed by the backend.' });
   }, [toast]);
 
   return (

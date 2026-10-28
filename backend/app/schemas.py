@@ -3,7 +3,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ArtifactType, ReviewStatus, UserRole
+from app.models import (
+    ArtifactType,
+    MoSCoWPriority,
+    RequirementCategory,
+    ReviewStatus,
+    UserRole,
+)
 
 
 class ErrorDetail(BaseModel):
@@ -107,6 +113,11 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+
+
 class ProjectMemberAdd(BaseModel):
     user_id: uuid.UUID
     role: UserRole
@@ -130,6 +141,70 @@ class ProjectRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+# Requirement Schemas
+class RequirementCreate(BaseModel):
+    requirement_key: str = Field(min_length=1, max_length=30)
+    title: str = Field(min_length=1, max_length=300)
+    description: str = Field(min_length=1)
+    category: RequirementCategory | None = None
+    priority: MoSCoWPriority | None = None
+    source_document: str | None = Field(default=None, max_length=500)
+    source_location: dict | None = None
+    embedding_metadata: dict | None = None
+
+
+class RequirementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    requirement_key: str
+    title: str
+    description: str
+    category: RequirementCategory | None
+    priority: MoSCoWPriority | None
+    source_document: str | None
+    source_location: dict | None
+    embedding_metadata: dict | None
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class RequirementChunkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    requirement_id: uuid.UUID
+    chunk_index: int
+    content: str
+    token_count: int
+    embedding_metadata: dict | None
+
+
+class RequirementsUploadRead(BaseModel):
+    filename: str
+    requirements_created: int
+    chunks_created: int
+    embedding_model: str
+    embeddings_generated: bool
+
+
+class RequirementSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class RequirementSearchResult(BaseModel):
+    requirement: RequirementRead
+    chunk: RequirementChunkRead
+    similarity: float
+
+
+class RequirementSearchResponse(BaseModel):
+    results: list[RequirementSearchResult]
 
 
 # Artifact Schemas
@@ -165,54 +240,6 @@ class ArtifactRead(BaseModel):
     updated_at: datetime
 
 
-<<<<<<< Updated upstream
-=======
-class ArtifactDetailRead(ArtifactRead):
-    versions: list[ArtifactVersionRead] = Field(default_factory=list)
-    current_version: ArtifactVersionRead | None = None
-
-
-class ArtifactVersionCreate(BaseModel):
-    payload: dict = Field(default_factory=dict)
-    source_requirement_ids: list[uuid.UUID] = Field(default_factory=list)
-
-
-class ArtifactStatusUpdate(BaseModel):
-    status: ReviewStatus
-
-
-# AI Generation Schemas (Engineer 2)
-class UserStoriesGenerateRequest(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
-    requirement_ids: list[uuid.UUID] | None = None
-    query: str | None = Field(default=None, max_length=1000, description="Optional RAG search query")
-
-
-class AcceptanceCriteriaGenerateRequest(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
-    requirement_ids: list[uuid.UUID] | None = None
-    query: str | None = Field(default=None, max_length=1000)
-
-
-class TestCasesGenerateRequest(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
-    requirement_ids: list[uuid.UUID] | None = None
-    query: str | None = Field(default=None, max_length=1000)
-
-
-class ApiSpecGenerateRequest(BaseModel):
-    title: str | None = Field(default=None, max_length=300)
-    requirement_ids: list[uuid.UUID] | None = None
-    query: str | None = Field(default=None, max_length=1000)
-
-
-class UnifiedGenerateRequest(BaseModel):
-    artifact_type: ArtifactType
-    title: str | None = Field(default=None, max_length=300)
-    requirement_ids: list[uuid.UUID] | None = None
-    query: str | None = Field(default=None, max_length=1000)
-
-
 class WorkItemCreate(BaseModel):
     record_type: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=300)
@@ -245,8 +272,6 @@ class WorkItemRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-
->>>>>>> Stashed changes
 # Audit Log Schemas
 class AuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

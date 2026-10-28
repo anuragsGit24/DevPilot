@@ -127,7 +127,7 @@ class ApiClient {
       headers.set('Authorization', 'Bearer ' + token);
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    let response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
     });

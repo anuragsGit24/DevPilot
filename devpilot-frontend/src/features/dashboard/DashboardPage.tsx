@@ -18,7 +18,12 @@ import {
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const { dashboard, activeProject, activities } = useProjectData();
+  const { dashboard, activeProject, activities, sprints } = useProjectData();
+  const activeSprint = sprints.find((sprint) => sprint.status === 'active');
+  const confirmedRate = dashboard.requirementCount > 0
+    ? Math.round(dashboard.confirmedRequirements / dashboard.requirementCount * 100)
+    : null;
+  const sprintTotalPoints = activeSprint?.totalPoints ?? activeSprint?.capacityStoryPoints ?? 0;
 
   return (
     <div className="space-y-6">
@@ -33,7 +38,7 @@ export function DashboardPage() {
             Welcome back, {user?.name?.split(' ')[0] || 'Engineer'}
           </h1>
           <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
-            Project <span className="font-semibold text-white">{activeProject.name}</span> has 8 items awaiting your review and 1 active sprint velocity alert.
+            Project <span className="font-semibold text-white">{activeProject.name || 'your workspace'}</span> has {dashboard.pendingReviewCount} items awaiting your review{activeSprint ? ` and ${activeSprint.name} is active.` : '.'}
           </p>
         </div>
 
@@ -57,7 +62,7 @@ export function DashboardPage() {
         <MetricCard
           label="Confirmed Requirements"
           value={`${dashboard?.confirmedRequirements ?? 0} / ${dashboard?.requirementCount ?? 0}`}
-          sub="83% confirmation rate"
+          sub={confirmedRate === null ? 'No requirements yet' : `${confirmedRate}% confirmation rate`}
           color="blue"
           icon={<FileText size={20} />}
         />
@@ -71,14 +76,13 @@ export function DashboardPage() {
         <MetricCard
           label="Quality Benchmark"
           value={`${dashboard?.qualityScore ?? 0}%`}
-          trend={{ value: 4.2, label: 'vs last cycle' }}
           color="green"
           icon={<TrendingUp size={20} />}
         />
         <MetricCard
           label="Active Sprint Progress"
           value={`${dashboard?.activeSprintProgress ?? 0}%`}
-          sub="Sprint 2: 18 / 47 pts completed"
+          sub={activeSprint ? `${activeSprint.name}: ${activeSprint.completedPoints ?? 0} / ${sprintTotalPoints} pts completed` : 'No active sprint'}
           color="amber"
           icon={<Calendar size={20} />}
         />

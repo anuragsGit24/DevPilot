@@ -1,5 +1,4 @@
 from functools import lru_cache
-from typing import Annotated
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,10 +20,6 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     password_reset_expire_minutes: int = 30
-<<<<<<< Updated upstream
-=======
-
-    # Requirements ingestion and embeddings (Engineer 1)
     requirements_max_upload_bytes: int = 10 * 1024 * 1024
     embedding_provider: str = "api"
     embedding_model: str = "gemini-embedding-2"
@@ -45,7 +40,6 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_max_tokens: int = 4096
     llm_timeout_seconds: float = 60.0
->>>>>>> Stashed changes
     
     # Failed-login controls & Account Lockout
     max_failed_attempts: int = 5
@@ -58,6 +52,10 @@ class Settings(BaseSettings):
     cloud_sql_connection_name: str | None = None  # e.g., "my-gcp-project:us-central1:devpilot-db"
     use_cloud_sql_auth_proxy: bool = False
 
+    demo_seed_enabled: bool = False
+    demo_admin_password: str = "change-me-demo-admin"
+    demo_user_password: str = "change-me-demo-user"
+
     model_config = SettingsConfigDict(
         env_prefix="DEVPILOT_",
         env_file=".env",
@@ -67,4 +65,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.demo_seed_enabled and settings.environment != "development":
+        raise ValueError("Demo seeding is only allowed when DEVPILOT_ENVIRONMENT=development.")
+    return settings
