@@ -82,6 +82,7 @@ class UserRead(BaseModel):
     locked_until: datetime | None
     last_login_at: datetime | None
     created_at: datetime
+
     updated_at: datetime
 
 
@@ -140,6 +141,7 @@ class ProjectRead(BaseModel):
     description: str | None
     created_by: uuid.UUID
     created_at: datetime
+
     updated_at: datetime
 
 
@@ -170,6 +172,7 @@ class RequirementRead(BaseModel):
     embedding_metadata: dict | None
     created_by: uuid.UUID
     created_at: datetime
+
     updated_at: datetime
 
 
@@ -227,6 +230,7 @@ class ArtifactVersionRead(BaseModel):
     created_at: datetime
 
 
+
 class ArtifactRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -237,6 +241,7 @@ class ArtifactRead(BaseModel):
     status: ReviewStatus
     created_by: uuid.UUID
     created_at: datetime
+
     updated_at: datetime
 
 
@@ -316,6 +321,7 @@ class WorkItemRead(BaseModel):
     parent_id: uuid.UUID | None
     created_by: uuid.UUID
     created_at: datetime
+
     updated_at: datetime
 
 # Audit Log Schemas
@@ -331,3 +337,23 @@ class AuditLogRead(BaseModel):
     ip_address: str | None
     details: dict | None
     created_at: datetime
+
+
+
+# Architecture Recommendation Schemas
+from app.api.architecture import (  # noqa: E402, F401
+    ArchitectureRecommendRequest,
+    ArchitectureRecommendResponse,
+    ComponentOut,
+    AlternativeOut,
+    ADROut,
+)
+
+# Sprint Planning & Estimation Schemas
+from app.api.sprints import (  # noqa: E402, F401
+    NormalizedStoryIn,
+    SprintPlanRequest,
+    SprintPlanResponse,
+    SprintOut,
+    StoryEstimateOut,
+)

@@ -26,7 +26,7 @@ import {
 import { sleep, generateId } from '@/lib/utils';
 import { useToast } from './ToastProvider';
 import { useAuth } from './AuthProvider';
-import { api, type ApiProject, type ApiWorkItem } from '@/lib/api';
+import { api, type ApiProject, type ApiWorkItem, type ApiNormalizedStoryIn, type ApiSprintPlanResponse } from '@/lib/api';
 
 interface ProjectDataContextType {
   // Projects
@@ -74,13 +74,20 @@ interface ProjectDataContextType {
   // Architecture Recommendations
   architecture: ArchitectureRecommendation;
   updateArchitecture: (arch: ArchitectureRecommendation) => void;
-  generateArchitectureRecommendation: () => Promise<void>;
+  generateArchitectureRecommendation: (customContext?: string) => Promise<ArchitectureRecommendation | null>;
 
   // Sprints
   sprints: Sprint[];
   updateSprint: (id: string, updates: Partial<Sprint>) => void;
   createSprint: (sprint: Omit<Sprint, 'id' | 'createdAt'>) => Sprint;
+  deleteSprint: (sprintId: string) => Promise<void>;
   assignStoryToSprint: (storyId: string, sprintId: string | null) => void;
+  planSprints: (options?: {
+    capacityStoryPoints?: number;
+    sprintDurationWeeks?: number;
+    explicitStories?: ApiNormalizedStoryIn[];
+  }) => Promise<ApiSprintPlanResponse>;
+  refreshSprints: () => Promise<Sprint[]>;
 
   // Prompts
   prompts: PromptTemplate[];
@@ -232,14 +239,19 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
   }
   if (item.record_type === 'sprint') {
     payload.goal = payload.goal ?? '';
-    payload.userStoryIds = Array.isArray(payload.userStoryIds) ? payload.userStoryIds : [];
-    payload.totalPoints = Number(payload.totalPoints ?? payload.capacityStoryPoints ?? 0);
-    payload.capacityStoryPoints = Number(payload.capacityStoryPoints ?? payload.totalPoints ?? 0);
+    payload.userStoryIds = Array.isArray(payload.userStoryIds)
+      ? payload.userStoryIds
+      : Array.isArray(payload.story_ids)
+        ? payload.story_ids
+        : [];
+    payload.totalPoints = Number(payload.totalPoints ?? payload.total_points ?? payload.capacityStoryPoints ?? 0);
+    payload.capacityStoryPoints = Number(payload.capacityStoryPoints ?? payload.capacity ?? payload.totalPoints ?? 0);
     payload.completedPoints = Number(payload.completedPoints ?? 0);
-    payload.allocatedStoryPoints = Number(payload.allocatedStoryPoints ?? 0);
+    payload.allocatedStoryPoints = Number(payload.allocatedStoryPoints ?? payload.total_points ?? 0);
     payload.targetVelocity = Number(payload.targetVelocity ?? payload.capacityStoryPoints ?? 0);
-    payload.startDate = payload.startDate ?? item.created_at;
-    payload.endDate = payload.endDate ?? item.updated_at;
+    payload.startDate = payload.startDate ?? payload.start_date ?? item.created_at;
+    payload.endDate = payload.endDate ?? payload.end_date ?? item.updated_at;
+    payload.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
   }
   if (item.record_type === 'api_specification') {
     payload.title = payload.title ?? item.title;
@@ -250,8 +262,31 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
   if (item.record_type === 'architecture') {
     payload.title = payload.title ?? item.title;
     payload.summary = payload.summary ?? '';
-    for (const key of ['components', 'decisions', 'risks', 'alternatives']) {
-      if (!Array.isArray(payload[key])) payload[key] = [];
+    for (const key of ['components', 'decisions', 'risks', 'alternatives', 'securityConsiderations', 'resiliencePatterns', 'evidence']) {
+      if (!Array.isArray(payload[key])) {
+        if (key === 'securityConsiderations' && Array.isArray(payload.security_patterns)) {
+          payload.securityConsiderations = payload.security_patterns;
+        } else if (key === 'resiliencePatterns' && Array.isArray(payload.resilience_patterns)) {
+          payload.resiliencePatterns = payload.resilience_patterns;
+        } else {
+          payload[key] = [];
+        }
+      }
+    }
+    if (!payload.dataStores && Array.isArray(payload.data_stores)) {
+      payload.dataStores = payload.data_stores;
+    }
+    if ((!Array.isArray(payload.decisions) || payload.decisions.length === 0) && Array.isArray(payload.adrs)) {
+      payload.decisions = payload.adrs.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        context: a.context,
+        decision: a.decision,
+        consequences: a.consequences,
+      }));
+    }
+    if (!payload.provider && payload.provider !== undefined) {
+      payload.provider = payload.provider;
     }
   }
   if (item.record_type === 'evaluation') {
@@ -408,23 +443,28 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
           });
         }
         setProjects(loaded);
-        setActiveProjectId((current) => current && loaded.some((p) => p.id === current) ? current : loaded[0]?.id ?? '');
-        setDocuments(allItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
-        setRequirements(allItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i)));
-        setUserStories(allItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i)));
-        setAcceptanceCriteria(allItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i)));
-        setTestCases(allItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i)));
-        const apiSpecifications = allItems.filter((i) => i.record_type === 'api_specification');
-        const architectures = allItems.filter((i) => i.record_type === 'architecture');
+        const targetProjectId = (activeProjectId && loaded.some((p) => p.id === activeProjectId))
+          ? activeProjectId
+          : loaded[0]?.id ?? '';
+        setActiveProjectId(targetProjectId);
+
+        const projectItems = allItems.filter((i) => i.project_id === targetProjectId);
+        setDocuments(projectItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
+        setRequirements(projectItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i)));
+        setUserStories(projectItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i)));
+        setAcceptanceCriteria(projectItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i)));
+        setTestCases(projectItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i)));
+        const apiSpecifications = projectItems.filter((i) => i.record_type === 'api_specification');
+        const architectures = projectItems.filter((i) => i.record_type === 'architecture');
         setApiSpec(apiSpecifications[0]
           ? mapWorkItem<ApiSpecification>(apiSpecifications[0])
           : {} as ApiSpecification);
         setArchitecture(architectures[0]
           ? mapWorkItem<ArchitectureRecommendation>(architectures[0])
           : {} as ArchitectureRecommendation);
-        setSprints(allItems.filter((i) => i.record_type === 'sprint').map((i) => mapWorkItem<Sprint>(i)));
-        setPrompts(allItems.filter((i) => i.record_type === 'prompt').map((i) => mapWorkItem<PromptTemplate>(i)));
-        setEvaluationRuns(allItems.filter((i) => i.record_type === 'evaluation').map((i) => mapWorkItem<EvaluationRun>(i)));
+        setSprints(projectItems.filter((i) => i.record_type === 'sprint').map((i) => mapWorkItem<Sprint>(i)));
+        setPrompts(projectItems.filter((i) => i.record_type === 'prompt').map((i) => mapWorkItem<PromptTemplate>(i)));
+        setEvaluationRuns(projectItems.filter((i) => i.record_type === 'evaluation').map((i) => mapWorkItem<EvaluationRun>(i)));
       } catch (error) {
         if (!cancelled) toast({ variant: 'error', title: 'Unable to load workspace', description: (error as Error).message });
       }
@@ -432,6 +472,20 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     void loadWorkspace();
     return () => { cancelled = true; };
   }, [activeProjectId, isAuthenticated, isDemoMode, toast, user?.id]);
+
+  const handleSelectProjectId = useCallback((id: string) => {
+    setActiveProjectId(id);
+    setDocuments([]);
+    setRequirements([]);
+    setUserStories([]);
+    setAcceptanceCriteria([]);
+    setTestCases([]);
+    setApiSpec({} as ApiSpecification);
+    setArchitecture({} as ArchitectureRecommendation);
+    setSprints([]);
+    setPrompts([]);
+    setEvaluationRuns([]);
+  }, []);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? EMPTY_PROJECT;
 
@@ -785,12 +839,70 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     toast({ variant: 'info', title: 'Architecture updated' });
   }, [persistItem, toast]);
 
-  const generateArchitectureRecommendation = useCallback(async () => {
+  const generateArchitectureRecommendation = useCallback(async (customContext?: string) => {
+    if (!activeProjectId) {
+      toast({ variant: 'error', title: 'No active project selected' });
+      return null;
+    }
     setIsProcessing((prev) => ({ ...prev, generateArch: true }));
-    await sleep(1800);
-    setIsProcessing((prev) => ({ ...prev, generateArch: false }));
-    toast({ variant: 'success', title: 'Architecture Synthesis Done', description: 'Architecture recommendations updated with risk matrix.' });
-  }, [toast]);
+    try {
+      const res = await api.recommendArchitecture(activeProjectId, { context: customContext || '' });
+      const mappedArch: ArchitectureRecommendation = {
+        id: res.id,
+        projectId: res.project_id,
+        artifactVersionId: 'v1',
+        title: `Architecture: ${res.pattern}`,
+        summary: res.summary,
+        pattern: res.pattern,
+        components: (res.components || []).map((c) => ({
+          name: c.name,
+          role: c.role,
+          technology: c.technology,
+          responsibilities: c.responsibilities,
+        })),
+        decisions: (res.adrs || []).map((a) => ({
+          id: a.id,
+          title: a.title,
+          context: a.context,
+          decision: a.decision,
+          consequences: a.consequences,
+        })),
+        securityConsiderations: res.security_patterns || [],
+        resiliencePatterns: res.resilience_patterns || [],
+        resilience_patterns: res.resilience_patterns || [],
+        dataStores: res.data_stores || [],
+        data_stores: res.data_stores || [],
+        deploymentTopology: res.deployment_topology || '',
+        alternatives: res.alternatives || [],
+        assumptions: res.assumptions || [],
+        risks: res.risks || [],
+        rationale: res.rationale || '',
+        evidence: res.evidence || [],
+        provider: res.provider || 'rules_based',
+        mermaidDiagram: res.mermaid_diagram ?? undefined,
+        status: 'draft',
+        sourceRequirementIds: [],
+        createdAt: res.created_at,
+        updatedAt: res.updated_at,
+      };
+      setArchitecture(mappedArch);
+      toast({
+        variant: 'success',
+        title: 'Architecture Blueprint Synthesized',
+        description: `Successfully synthesized ${res.pattern} pattern (${res.provider}).`,
+      });
+      return mappedArch;
+    } catch (err: any) {
+      toast({
+        variant: 'error',
+        title: 'Architecture synthesis failed',
+        description: err.message || 'Unable to generate recommendation',
+      });
+      throw err;
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, generateArch: false }));
+    }
+  }, [activeProjectId, toast]);
 
   // Sprints
   const updateSprint = useCallback((id: string, updates: Partial<Sprint>) => {
@@ -801,19 +913,60 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [persistItem, sprints, toast]);
 
   const createSprint = useCallback((sprintData: Omit<Sprint, 'id' | 'createdAt'>) => {
+    const tempId = generateId('sprint');
     const newSprint: Sprint = {
       ...sprintData,
-      id: generateId('sprint'),
+      id: tempId,
+      source: 'manual',
+      isManual: true,
       createdAt: new Date().toISOString(),
     };
     setSprints((prev) => [...prev, newSprint]);
+
+    if (activeProjectId) {
+      void api.createWorkItem(activeProjectId, {
+        record_type: 'sprint',
+        title: sprintData.name,
+        status: sprintData.status || 'planning',
+        payload: {
+          ...sprintData,
+          source: 'manual',
+          is_manual: true,
+        },
+      }).then((createdItem) => {
+        setSprints((prev) => prev.map((sp) => (sp.id === tempId ? mapWorkItem<Sprint>(createdItem) : sp)));
+      }).catch((err: Error) => {
+        toast({ variant: 'error', title: 'Failed to persist sprint', description: err.message });
+      });
+    }
+
     toast({ variant: 'success', title: 'Sprint created', description: newSprint.name });
     return newSprint;
-  }, [toast]);
+  }, [activeProjectId, toast]);
+
+  const deleteSprint = useCallback(async (sprintId: string) => {
+    const sprintToDelete = sprints.find((s) => s.id === sprintId);
+    if (!sprintToDelete) return;
+
+    setSprints((prev) => prev.filter((s) => s.id !== sprintId));
+
+    if (activeProjectId) {
+      const apiId = getApiId(sprintToDelete) || sprintToDelete.id;
+      try {
+        await api.deleteWorkItem(activeProjectId, apiId);
+        toast({ variant: 'success', title: 'Sprint deleted', description: sprintToDelete.name });
+      } catch (err: any) {
+        setSprints((prev) => [...prev, sprintToDelete]);
+        toast({ variant: 'error', title: 'Failed to delete sprint', description: err.message });
+        throw err;
+      }
+    }
+  }, [activeProjectId, sprints, toast]);
 
   const assignStoryToSprint = useCallback((storyId: string, sprintId: string | null) => {
+    let affectedSprints: Sprint[] = [];
     setSprints((prevSprints) => {
-      return prevSprints.map((sprint) => {
+      const nextSprints = prevSprints.map((sprint) => {
         const currentStoryIds = sprint.userStoryIds ?? sprint.items?.map((item) => item.storyId) ?? [];
         const withoutStory = currentStoryIds.filter((id) => id !== storyId);
         const nextStoryIds = sprint.id === sprintId && userStories.some((story) => story.id === storyId)
@@ -828,9 +981,128 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
           allocatedStoryPoints,
         };
       });
+      affectedSprints = nextSprints.filter((s) => s.id === sprintId || (prevSprints.find((p) => p.id === s.id)?.userStoryIds ?? []).includes(storyId));
+      return nextSprints;
     });
+
+    if (activeProjectId && affectedSprints.length > 0) {
+      affectedSprints.forEach((sp) => {
+        persistItem('sprint', sp);
+      });
+    }
+
     toast({ variant: 'info', title: 'Sprint story assignment updated' });
-  }, [userStories, toast]);
+  }, [activeProjectId, persistItem, userStories, toast]);
+
+  const planSprints = useCallback(async (options?: {
+    capacityStoryPoints?: number;
+    sprintDurationWeeks?: number;
+    explicitStories?: ApiNormalizedStoryIn[];
+  }) => {
+    if (!activeProjectId) {
+      toast({ variant: 'error', title: 'No active project selected' });
+      throw new Error('No active project selected');
+    }
+    setIsProcessing((prev) => ({ ...prev, planSprints: true }));
+    try {
+      let payloadStories: ApiNormalizedStoryIn[] | undefined = options?.explicitStories;
+      if (!payloadStories && userStories.length > 0) {
+        payloadStories = userStories.map((s) => ({
+          id: s.id,
+          title: s.title,
+          priority: s.priority || 'should',
+          description: s.action || s.benefit || '',
+          acceptance_criteria_count: 2,
+          dependency_ids: s.dependencyIds || [],
+          risk_level: 'medium',
+          complexity: 'medium',
+          existing_estimate: s.storyPoints && s.storyPoints > 0 ? s.storyPoints : null,
+        }));
+      }
+
+      const res = await api.planSprints(activeProjectId, {
+        stories: payloadStories,
+        capacity_story_points: options?.capacityStoryPoints ?? 30,
+        sprint_duration_weeks: options?.sprintDurationWeeks ?? 2,
+      });
+
+      const mappedSprints: Sprint[] = res.sprints.map((sp) => ({
+        id: sp.id,
+        projectId: sp.project_id,
+        name: sp.name,
+        goal: sp.goal,
+        startDate: sp.start_date,
+        endDate: sp.end_date,
+        status: sp.status as any,
+        totalPoints: sp.total_points,
+        completedPoints: 0,
+        allocatedStoryPoints: sp.total_points,
+        capacityStoryPoints: sp.capacity,
+        targetVelocity: sp.capacity,
+        userStoryIds: sp.story_ids,
+        warnings: sp.warnings,
+        createdAt: sp.created_at,
+        source: 'auto_planner',
+        isAutoPlanned: true,
+      }));
+
+      if (res.estimates && res.estimates.length > 0) {
+        const estMap = new Map(res.estimates.map((e) => [e.story_id, e.estimated_points]));
+        setUserStories((prev) =>
+          prev.map((s) => (estMap.has(s.id) ? { ...s, storyPoints: estMap.get(s.id) } : s))
+        );
+      }
+
+      setSprints((prev) => {
+        const manualSprints = prev.filter((s) => s.source === 'manual' || s.isManual);
+        return [...manualSprints, ...mappedSprints];
+      });
+      toast({
+        variant: 'success',
+        title: 'Sprint Plan Generated',
+        description: `Successfully planned ${res.total_stories_planned} stories across ${res.total_sprints} sprints (${res.total_story_points} pts).`,
+      });
+      return res;
+    } catch (err: any) {
+      toast({
+        variant: 'error',
+        title: 'Sprint planning failed',
+        description: err.message || 'Unable to plan sprints',
+      });
+      throw err;
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, planSprints: false }));
+    }
+  }, [activeProjectId, toast, userStories]);
+
+  const refreshSprints = useCallback(async () => {
+    if (!activeProjectId) return [];
+    try {
+      const apiSprints = await api.listSprints(activeProjectId);
+      const mapped: Sprint[] = apiSprints.map((sp) => ({
+        id: sp.id,
+        projectId: sp.project_id,
+        name: sp.name,
+        goal: sp.goal,
+        startDate: sp.start_date,
+        endDate: sp.end_date,
+        status: sp.status as any,
+        totalPoints: sp.total_points,
+        completedPoints: 0,
+        allocatedStoryPoints: sp.total_points,
+        capacityStoryPoints: sp.capacity,
+        targetVelocity: sp.capacity,
+        userStoryIds: sp.story_ids,
+        warnings: sp.warnings,
+        createdAt: sp.created_at,
+      }));
+      setSprints(mapped);
+      return mapped;
+    } catch (err: any) {
+      toast({ variant: 'error', title: 'Failed to refresh sprints', description: err.message });
+      return [];
+    }
+  }, [activeProjectId, toast]);
 
   // Prompts
   const updatePrompt = useCallback((id: string, updates: Partial<PromptTemplate>) => {
@@ -941,7 +1213,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       value={{
         projects,
         activeProject,
-        setActiveProjectId,
+        setActiveProjectId: handleSelectProjectId,
         createProject,
         updateProject,
         documents,
@@ -973,7 +1245,10 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         sprints,
         updateSprint,
         createSprint,
+        deleteSprint,
         assignStoryToSprint,
+        planSprints,
+        refreshSprints,
         prompts,
         updatePrompt,
         createPrompt,

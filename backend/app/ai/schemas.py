@@ -76,3 +76,46 @@ class OpenApiSpecPayload(BaseModel):
     paths: dict[str, Any]
     components: dict[str, Any] = Field(default_factory=dict)
     source_requirement_keys: list[str] = Field(default_factory=list, alias="x-source-requirement-keys")
+
+
+class GeneratedComponent(BaseModel):
+    name: str = Field(description="Component name e.g. API Gateway")
+    role: str = Field(description="Role / responsibility summary")
+    technology: str = Field(description="Technology or framework used")
+    responsibilities: list[str] = Field(default_factory=list)
+
+
+class GeneratedDataStore(BaseModel):
+    type: str = Field(description="Data store category e.g. Relational, Vector, Cache")
+    technology: str = Field(description="Specific technology e.g. PostgreSQL, Redis")
+    rationale: str = Field(description="Why this data store was selected")
+
+
+class GeneratedAlternative(BaseModel):
+    name: str = Field(description="Alternative architecture pattern or technology")
+    rationale: str = Field(description="Why this alternative was considered")
+    tradeoffs: str = Field(description="Why this alternative was not selected as primary")
+
+
+class GeneratedADR(BaseModel):
+    id: str = Field(description="ADR ID e.g. ADR-001")
+    title: str = Field(description="ADR title")
+    context: str = Field(description="Context and problem statement")
+    decision: str = Field(description="Decision reached")
+    consequences: str = Field(description="Positive and negative trade-offs")
+
+
+class ArchitectureRecommendationPayload(BaseModel):
+    pattern: str = Field(description="Recommended pattern e.g. Modular Monolith, Microservices")
+    summary: str = Field(description="High-level architecture blueprint summary")
+    components: list[GeneratedComponent] = Field(default_factory=list)
+    data_stores: list[GeneratedDataStore] = Field(default_factory=list)
+    security_patterns: list[str] = Field(default_factory=list)
+    resilience_patterns: list[str] = Field(default_factory=list)
+    deployment_topology: str = Field(default="")
+    alternatives: list[GeneratedAlternative] = Field(default_factory=list)
+    adrs: list[GeneratedADR] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    rationale: str = Field(default="")
+    evidence: list[str] = Field(default_factory=list)
