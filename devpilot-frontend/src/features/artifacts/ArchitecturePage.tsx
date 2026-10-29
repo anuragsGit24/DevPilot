@@ -25,7 +25,8 @@ export function ArchitecturePage() {
   const risks = architecture?.risks ?? [];
   const dataStores = architecture?.dataStores ?? architecture?.data_stores ?? [];
   const resiliencePatterns = architecture?.resiliencePatterns ?? architecture?.resilience_patterns ?? [];
-  const rationale = architecture?.rationale;
+  const rawRationale = architecture?.rationale;
+  const rationale = rawRationale ? rawRationale.replace(/Signal scores: \{[^}]+\}\.\s*/g, '') : '';
   const evidence = architecture?.evidence ?? [];
   const pattern = architecture?.pattern ?? 'Modular Monolith';
   const provider = architecture?.provider ?? 'rules_based';
@@ -185,19 +186,38 @@ export function ArchitecturePage() {
           {activeTab === 'stack' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {components.map((c, i) => (
-                <Card key={i} className="hover:border-slate-300 transition-colors">
-                  <CardBody className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-900 text-sm">{c.name}</span>
-                      <Badge variant="outline" size="xs">{c.role}</Badge>
+                <Card key={i} className="hover:border-slate-300 transition-colors shadow-sm">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3">
+                    <div className="flex items-start justify-between gap-2 w-full">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                          <Server size={15} />
+                        </div>
+                        <span className="font-semibold text-slate-900 text-sm leading-snug">{c.name}</span>
+                      </div>
+                      <Badge variant="primary" size="xs" className="flex-shrink-0">{c.technology}</Badge>
                     </div>
-                    <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 font-mono text-xs text-blue-700 font-semibold">
-                      {c.technology}
+                  </CardHeader>
+                  <CardBody className="space-y-3 py-3">
+                    <div>
+                      <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400 block mb-0.5">Architectural Role</span>
+                      <p className="text-xs font-medium text-slate-700">{c.role}</p>
                     </div>
-                    <p className="text-xs text-slate-600 leading-relaxed">{c.role}</p>
+
+                    {c.responsibilities && c.responsibilities.length > 0 ? (
+                      <div className="space-y-1">
+                        <span className="text-2xs font-semibold uppercase tracking-wider text-slate-400">Responsibilities:</span>
+                        <ul className="text-xs text-slate-600 space-y-1 list-disc list-inside">
+                          {c.responsibilities.map((r, rIdx) => (
+                            <li key={rIdx}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
                     <div className="pt-2 border-t border-slate-100">
-                      <span className="text-2xs text-slate-400 font-medium">Security Safeguard:</span>
-                      <p className="text-xs text-emerald-700 font-medium mt-0.5">
+                      <span className="text-2xs text-slate-400 font-medium block mb-0.5">Security Safeguard:</span>
+                      <p className="text-xs text-emerald-700 font-medium">
                         {architecture?.securityConsiderations[i] ?? architecture?.securityConsiderations[0] ?? 'Defense-in-depth isolation applied'}
                       </p>
                     </div>

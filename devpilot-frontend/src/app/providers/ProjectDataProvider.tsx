@@ -288,6 +288,9 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
     if (!payload.provider && payload.provider !== undefined) {
       payload.provider = payload.provider;
     }
+    if (typeof payload.rationale === 'string' && payload.rationale.includes("Signal scores: {")) {
+      payload.rationale = payload.rationale.replace(/Signal scores: \{[^}]+\}\.\s*/g, '');
+    }
   }
   if (item.record_type === 'evaluation') {
     payload.name = payload.name ?? item.title;
@@ -312,7 +315,24 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
 }
 
 function getApiId(value: object): string | undefined {
-  return (value as object & { apiId?: string }).apiId;
+  const item = value as { apiId?: string; id?: string };
+  if (item.apiId) return item.apiId;
+  if (
+    item.id &&
+    !item.id.startsWith('pending-') &&
+    !item.id.startsWith('sprint-') &&
+    !item.id.startsWith('gen-') &&
+    !item.id.startsWith('us-') &&
+    !item.id.startsWith('ac-') &&
+    !item.id.startsWith('tc-') &&
+    !item.id.startsWith('pmt-') &&
+    !item.id.startsWith('req-') &&
+    !item.id.startsWith('doc-') &&
+    !item.id.startsWith('act-')
+  ) {
+    return item.id;
+  }
+  return undefined;
 }
 
 export function ProjectDataProvider({ children }: { children: React.ReactNode }) {
@@ -451,7 +471,45 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         const projectItems = allItems.filter((i) => i.project_id === targetProjectId);
         setDocuments(projectItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
         setRequirements(projectItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i)));
-        setUserStories(projectItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i)));
+
+        let loadedStories = projectItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i));
+        if (loadedStories.length === 0 && targetProjectId) {
+          try {
+            const artifacts = await api.listArtifacts(targetProjectId, 'user_stories');
+            if (artifacts.length > 0) {
+              const latestDetail = await api.getArtifact(targetProjectId, artifacts[0].id);
+              const artifactStories = (latestDetail.current_version?.payload as any)?.stories;
+              if (Array.isArray(artifactStories) && artifactStories.length > 0) {
+                loadedStories = artifactStories.map((s: any) => ({
+                  id: s.story_key || s.id || generateId('us'),
+                  projectId: targetProjectId,
+                  artifactVersionId: latestDetail.current_version?.id,
+                  requirementId: s.source_requirement_keys?.[0] || '',
+                  title: s.title || `User Story ${s.story_key || s.id}`,
+                  asA: s.as_a,
+                  userRole: s.as_a || 'User',
+                  iWant: s.i_want,
+                  action: s.i_want || '',
+                  soThat: s.so_that,
+                  benefit: s.so_that || '',
+                  personaDescription: s.as_a || '',
+                  storyPoints: typeof s.estimated_story_points === 'number' ? s.estimated_story_points : 3,
+                  priority: (s.priority as any) || 'should',
+                  status: 'draft' as ArtifactStatus,
+                  version: latestDetail.current_version?.version_number || 1,
+                  history: [],
+                  sourceRequirementIds: s.source_requirement_keys || [],
+                  dependencyIds: s.dependency_ids || [],
+                  createdAt: latestDetail.created_at,
+                  updatedAt: latestDetail.updated_at,
+                }));
+              }
+            }
+          } catch {
+            // Non-fatal artifact fallback
+          }
+        }
+        setUserStories(loadedStories);
         setAcceptanceCriteria(projectItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i)));
         setTestCases(projectItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i)));
         const apiSpecifications = projectItems.filter((i) => i.record_type === 'api_specification');
@@ -491,16 +549,17 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   const persistItem = useCallback((
     recordType: string,
-    item: object & { id: string; projectId: string; title?: string; status?: string },
+    item: object & { id: string; projectId: string; title?: string; name?: string; status?: string },
   ) => {
     const apiId = getApiId(item);
     const payload = { ...item } as Record<string, unknown>;
     delete payload.apiId;
+    const itemTitle = item.title ?? item.name ?? recordType;
     const request = apiId
-      ? api.updateWorkItem(item.projectId, apiId, { title: item.title, status: item.status, payload })
+      ? api.updateWorkItem(item.projectId, apiId, { title: itemTitle, status: item.status, payload })
       : api.createWorkItem(item.projectId, {
         record_type: recordType,
-        title: item.title ?? recordType,
+        title: itemTitle,
         status: item.status,
         payload,
       });
@@ -687,39 +746,87 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [logActivity, persistItem, toast, userStories]);
 
   const generateUserStories = useCallback(async (requirementIds: string[]) => {
+    if (!activeProjectId) {
+      toast({ variant: 'error', title: 'No active project selected' });
+      return [];
+    }
     setIsProcessing((prev) => ({ ...prev, generateStories: true }));
-    await sleep(1500);
-    const generated: UserStory[] = requirementIds.map((reqId) => {
-      const parentReq = requirements.find((r) => r.id === reqId);
-      const title = parentReq ? `Enable ${parentReq.title}` : `User Story for ${reqId}`;
-      return {
-        id: generateId('us'),
-        projectId: activeProjectId,
-        requirementId: reqId,
-        title,
-        userRole: 'Retail Banking Customer',
-        action: 'authenticate using biometric hardware',
-        benefit: 'I can quickly access my account without manually entering a password',
-        personaDescription: 'Digital-first retail customer wanting fast secure login',
-        storyPoints: 5,
-        priority: 'must',
-        status: 'draft' as ArtifactStatus,
-        version: 1,
-        history: [],
-        promptId: 'pmt-001',
-        promptVersion: 2,
-        modelName: 'claude-3-5-sonnet-20241022 (Simulated)',
-        isEdited: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    setUserStories((prev) => [...generated, ...prev]);
-    generated.forEach((item) => persistItem('user_story', item));
-    setIsProcessing((prev) => ({ ...prev, generateStories: false }));
-    toast({ variant: 'success', title: 'AI Generation Finished', description: `Generated ${generated.length} user stories.` });
-    return generated;
-  }, [activeProjectId, persistItem, requirements, toast]);
+    try {
+      const artifact = await api.generateUserStories(activeProjectId, {
+        title: 'User Stories',
+        requirement_ids: requirementIds.length > 0 ? requirementIds : undefined,
+      });
+      const rawStories = (artifact.current_version?.payload as any)?.stories || [];
+      const generated: UserStory[] = rawStories.map((s: any) => {
+        const sid = s.story_key || s.id || generateId('us');
+        return {
+          id: sid,
+          projectId: activeProjectId,
+          artifactVersionId: artifact.current_version?.id,
+          requirementId: s.source_requirement_keys?.[0] || requirementIds[0] || '',
+          title: s.title || `User Story ${sid}`,
+          asA: s.as_a,
+          userRole: s.as_a || 'User',
+          iWant: s.i_want,
+          action: s.i_want || '',
+          soThat: s.so_that,
+          benefit: s.so_that || '',
+          personaDescription: s.as_a || '',
+          storyPoints: typeof s.estimated_story_points === 'number' ? s.estimated_story_points : 3,
+          priority: (s.priority as any) || 'should',
+          status: 'draft' as ArtifactStatus,
+          version: artifact.current_version?.version_number || 1,
+          history: [],
+          sourceRequirementIds: s.source_requirement_keys || requirementIds,
+          dependencyIds: s.dependency_ids || [],
+          createdAt: artifact.created_at || new Date().toISOString(),
+          updatedAt: artifact.updated_at || new Date().toISOString(),
+        };
+      });
+
+      for (const item of generated) {
+        try {
+          const created = await api.createWorkItem(activeProjectId, {
+            record_type: 'user_story',
+            title: item.title,
+            status: item.status,
+            payload: {
+              ...item,
+              story_key: item.id,
+              as_a: item.userRole,
+              i_want: item.action,
+              so_that: item.benefit,
+            },
+            source_ids: item.sourceRequirementIds || [],
+          });
+          item.apiId = created.id;
+        } catch {
+          // Keep in-memory if work item bridge creation encounters issue
+        }
+      }
+
+      setUserStories((prev) => {
+        const existingIds = new Set(generated.map((g) => g.id));
+        return [...generated, ...prev.filter((p) => !existingIds.has(p.id))];
+      });
+
+      toast({
+        variant: 'success',
+        title: 'AI Generation Finished',
+        description: `Generated ${generated.length} user stories from requirements.`,
+      });
+      return generated;
+    } catch (err: any) {
+      toast({
+        variant: 'error',
+        title: 'User story generation failed',
+        description: err.message || 'Unable to generate user stories',
+      });
+      throw err;
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, generateStories: false }));
+    }
+  }, [activeProjectId, toast]);
 
   // Acceptance Criteria
   const updateAcceptanceCriteria = useCallback((id: string, updates: Partial<AcceptanceCriteria>) => {
@@ -964,35 +1071,40 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [activeProjectId, sprints, toast]);
 
   const assignStoryToSprint = useCallback((storyId: string, sprintId: string | null) => {
-    let affectedSprints: Sprint[] = [];
-    setSprints((prevSprints) => {
-      const nextSprints = prevSprints.map((sprint) => {
-        const currentStoryIds = sprint.userStoryIds ?? sprint.items?.map((item) => item.storyId) ?? [];
-        const withoutStory = currentStoryIds.filter((id) => id !== storyId);
-        const nextStoryIds = sprint.id === sprintId && userStories.some((story) => story.id === storyId)
-          ? [...withoutStory, storyId]
-          : withoutStory;
-        const allocatedStoryPoints = nextStoryIds.reduce((total, id) => (
-          total + (userStories.find((story) => story.id === id)?.storyPoints ?? 0)
-        ), 0);
-        return {
-          ...sprint,
-          userStoryIds: nextStoryIds,
-          allocatedStoryPoints,
-        };
-      });
-      affectedSprints = nextSprints.filter((s) => s.id === sprintId || (prevSprints.find((p) => p.id === s.id)?.userStoryIds ?? []).includes(storyId));
-      return nextSprints;
+    const nextSprints = sprints.map((sprint) => {
+      const currentStoryIds = sprint.userStoryIds ?? sprint.items?.map((item) => item.storyId) ?? [];
+      const withoutStory = currentStoryIds.filter((id) => id !== storyId);
+      const isTarget = sprint.id === sprintId;
+      const nextStoryIds = isTarget ? [...withoutStory, storyId] : withoutStory;
+      const allocatedStoryPoints = nextStoryIds.reduce((total, id) => {
+        const found = userStories.find((story) => story.id === id);
+        return total + (found?.storyPoints ?? 0);
+      }, 0);
+
+      return {
+        ...sprint,
+        userStoryIds: nextStoryIds,
+        allocatedStoryPoints,
+      };
     });
 
-    if (activeProjectId && affectedSprints.length > 0) {
-      affectedSprints.forEach((sp) => {
+    const affected = nextSprints.filter((s) => {
+      const oldSprint = sprints.find((p) => p.id === s.id);
+      const oldIds = oldSprint?.userStoryIds ?? [];
+      const newIds = s.userStoryIds ?? [];
+      return oldIds.length !== newIds.length || oldIds.some((id) => !newIds.includes(id));
+    });
+
+    setSprints(nextSprints);
+
+    if (activeProjectId && affected.length > 0) {
+      affected.forEach((sp) => {
         persistItem('sprint', sp);
       });
     }
 
     toast({ variant: 'info', title: 'Sprint story assignment updated' });
-  }, [activeProjectId, persistItem, userStories, toast]);
+  }, [activeProjectId, persistItem, sprints, userStories, toast]);
 
   const planSprints = useCallback(async (options?: {
     capacityStoryPoints?: number;
@@ -1028,6 +1140,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
       const mappedSprints: Sprint[] = res.sprints.map((sp) => ({
         id: sp.id,
+        apiId: sp.id,
         projectId: sp.project_id,
         name: sp.name,
         goal: sp.goal,
@@ -1081,6 +1194,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       const apiSprints = await api.listSprints(activeProjectId);
       const mapped: Sprint[] = apiSprints.map((sp) => ({
         id: sp.id,
+        apiId: sp.id,
         projectId: sp.project_id,
         name: sp.name,
         goal: sp.goal,

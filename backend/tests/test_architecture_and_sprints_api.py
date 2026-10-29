@@ -10,7 +10,18 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password
-from app.models import Project, ProjectMember, Requirement, User, UserRole, WorkItem
+from app.models import (
+    Artifact,
+    ArtifactType,
+    ArtifactVersion,
+    Project,
+    ProjectMember,
+    Requirement,
+    ReviewStatus,
+    User,
+    UserRole,
+    WorkItem,
+)
 
 
 @pytest.fixture
@@ -434,5 +445,201 @@ async def test_recommend_architecture_mock_llm_and_fallback(
     data_fallback = res_fallback.json()
     assert data_fallback["provider"] == "rules_based"
     assert "LLM generation was unavailable" in data_fallback["rationale"]
+
+
+@pytest.mark.asyncio
+async def test_plan_sprints_rejects_duplicate_story_ids(
+    async_client: AsyncClient, test_users_and_projects: dict
+):
+    """Verifies strict 422 rejection when request contains duplicate story IDs."""
+    proj_id = test_users_and_projects["proj_a"].id
+    token = test_users_and_projects["pm_token"]
+
+    payload = {
+        "stories": [
+            {"id": "STORY-DUP", "title": "First instance of story", "priority": "must"},
+            {"id": "STORY-DUP", "title": "Second duplicate instance", "priority": "should"},
+        ]
+    }
+    res = await async_client.post(
+        f"/api/v1/projects/{proj_id}/sprints/plan",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 422
+    assert "Duplicate story ID(s) detected: STORY-DUP" in str(res.json())
+
+
+@pytest.mark.asyncio
+async def test_plan_sprints_rejects_invalid_start_date(
+    async_client: AsyncClient, test_users_and_projects: dict
+):
+    """Verifies strict 422 rejection when start_date is not valid ISO-8601."""
+    proj_id = test_users_and_projects["proj_a"].id
+    token = test_users_and_projects["pm_token"]
+
+    payload = {
+        "stories": [
+            {"id": "STORY-1", "title": "Valid story", "priority": "must"},
+        ],
+        "start_date": "not-a-valid-date-string",
+    }
+    res = await async_client.post(
+        f"/api/v1/projects/{proj_id}/sprints/plan",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 422
+    assert "Invalid start_date format" in str(res.json())
+
+
+@pytest.mark.asyncio
+async def test_plan_sprints_preserves_unmarked_legacy_sprint(
+    async_client: AsyncClient, test_users_and_projects: dict, db_session: AsyncSession
+):
+    """Verifies that sprint planning replan deletes only auto_planner sprints and preserves unmarked legacy sprints."""
+    proj_id = test_users_and_projects["proj_a"].id
+    token = test_users_and_projects["pm_token"]
+    user_id = test_users_and_projects["pm"].id
+
+    # Seed an unmarked legacy sprint (no 'source' or 'is_auto_planned' field in payload)
+    legacy_sprint = WorkItem(
+        project_id=proj_id,
+        record_type="sprint",
+        title="Legacy Unmarked Sprint",
+        status="active",
+        payload={
+            "sprint_number": 1,
+            "startDate": "2026-10-01",
+            "endDate": "2026-10-14",
+            "userStoryIds": ["LEGACY-001"],
+            "totalPoints": 8,
+            "capacityStoryPoints": 25,
+            "goal": "Pre-existing legacy sprint",
+        },
+        source_ids=[],
+        created_by=user_id,
+    )
+    # Seed an existing auto-planned sprint
+    old_auto_sprint = WorkItem(
+        project_id=proj_id,
+        record_type="sprint",
+        title="Old Auto Sprint",
+        status="planning",
+        payload={
+            "source": "auto_planner",
+            "is_auto_planned": True,
+            "sprint_number": 1,
+            "userStoryIds": ["OLD-001"],
+            "totalPoints": 10,
+        },
+        source_ids=[],
+        created_by=user_id,
+    )
+    db_session.add_all([legacy_sprint, old_auto_sprint])
+    await db_session.commit()
+
+    # Run replan
+    payload = {
+        "stories": [
+            {"id": "NEW-AUTO-1", "title": "New Auto Planned Story", "priority": "must"},
+        ]
+    }
+    res = await async_client.post(
+        f"/api/v1/projects/{proj_id}/sprints/plan",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201
+
+    # Verify that Legacy Unmarked Sprint is PRESERVED, Old Auto Sprint was DELETED, and New Auto Sprint was ADDED
+    list_res = await async_client.get(
+        f"/api/v1/projects/{proj_id}/sprints",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_res.status_code == 200
+    sprints = list_res.json()
+    sprint_names = [sp["name"] for sp in sprints]
+    assert "Legacy Unmarked Sprint" in sprint_names
+    assert "Old Auto Sprint" not in sprint_names
+    assert any("Sprint 1" in name for name in sprint_names)
+
+
+@pytest.mark.asyncio
+async def test_plan_sprints_from_persisted_artifacts(
+    async_client: AsyncClient, test_users_and_projects: dict, db_session: AsyncSession
+):
+    """Verifies that omitting 'stories' in request correctly loads and plans genuine persisted user story artifacts."""
+    proj_id = test_users_and_projects["proj_a"].id
+    token = test_users_and_projects["pm_token"]
+    user_id = test_users_and_projects["pm"].id
+
+    # Seed an Artifact of type user_stories with an ArtifactVersion
+    art = Artifact(
+        id=uuid.uuid4(),
+        project_id=proj_id,
+        artifact_type=ArtifactType.user_stories,
+        title="Generated User Stories Artifact",
+        status=ReviewStatus.draft,
+        created_by=user_id,
+    )
+    db_session.add(art)
+    await db_session.flush()
+
+    ver = ArtifactVersion(
+        id=uuid.uuid4(),
+        artifact_id=art.id,
+        version_number=1,
+        payload={
+            "summary": "AI generated user stories from requirements",
+            "stories": [
+                {
+                    "story_key": "ART-001",
+                    "title": "Artifact Ingested Story A",
+                    "as_a": "Retail Customer",
+                    "i_want": "secure login",
+                    "so_that": "access accounts",
+                    "estimated_story_points": 5,
+                    "priority": "must",
+                    "dependency_ids": [],
+                },
+                {
+                    "story_key": "ART-002",
+                    "title": "Artifact Ingested Story B",
+                    "as_a": "Retail Customer",
+                    "i_want": "instant transfer",
+                    "so_that": "pay merchants",
+                    "estimated_story_points": 8,
+                    "priority": "should",
+                    "dependency_ids": ["ART-001"],
+                },
+            ],
+        },
+        source_requirement_ids=[],
+        created_by=user_id,
+    )
+    db_session.add(ver)
+    await db_session.commit()
+
+    # Call plan sprints WITHOUT explicit stories in payload
+    res = await async_client.post(
+        f"/api/v1/projects/{proj_id}/sprints/plan",
+        json={"capacity_story_points": 20},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201
+    plan_data = res.json()
+    assert plan_data["total_stories_planned"] == 2
+    assert plan_data["total_story_points"] == 13
+
+    # Ensure estimates and topological sequence are preserved
+    estimates = {e["story_id"]: e["estimated_points"] for e in plan_data["estimates"]}
+    assert estimates["ART-001"] == 5
+    assert estimates["ART-002"] == 8
+
+    # ART-001 must be scheduled before or in same sprint as ART-002
+    all_story_ids = [sid for sp in plan_data["sprints"] for sid in sp["story_ids"]]
+    assert all_story_ids.index("ART-001") < all_story_ids.index("ART-002")
+
 
 

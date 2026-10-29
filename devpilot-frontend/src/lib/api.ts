@@ -455,6 +455,11 @@ class ApiClient {
     });
   }
 
+  public async listArtifacts(projectId: string, artifactType?: string): Promise<ApiArtifact[]> {
+    const query = artifactType ? `?artifact_type=${encodeURIComponent(artifactType)}` : '';
+    return this.request<ApiArtifact[]>(`/projects/${projectId}/artifacts${query}`);
+  }
+
   public async getArtifact(projectId: string, artifactId: string): Promise<ApiArtifact> {
     return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/${artifactId}`);
   }

@@ -1,3 +1,4 @@
+from typing import Any
 import uuid
 from datetime import datetime
 
@@ -340,20 +341,138 @@ class AuditLogRead(BaseModel):
 
 
 
-# Architecture Recommendation Schemas
-from app.api.architecture import (  # noqa: E402, F401
-    ArchitectureRecommendRequest,
-    ArchitectureRecommendResponse,
-    ComponentOut,
-    AlternativeOut,
-    ADROut,
-)
+# Architecture Recommendation Schemas (Engineer 3)
+class ArchitectureRecommendRequest(BaseModel):
+    context: str = Field(
+        default="",
+        max_length=8000,
+        description="Explicit requirement constraints, non-functional targets, or compliance signals.",
+    )
+    requirement_ids: list[uuid.UUID] | None = Field(
+        default=None,
+        description="Optional list of specific requirement UUIDs to scope the evaluation.",
+    )
 
-# Sprint Planning & Estimation Schemas
-from app.api.sprints import (  # noqa: E402, F401
-    NormalizedStoryIn,
-    SprintPlanRequest,
-    SprintPlanResponse,
-    SprintOut,
-    StoryEstimateOut,
-)
+
+class ComponentOut(BaseModel):
+    name: str
+    role: str
+    technology: str
+    responsibilities: list[str] = Field(default_factory=list)
+
+
+class AlternativeOut(BaseModel):
+    name: str
+    rationale: str
+    tradeoffs: str
+
+
+class ADROut(BaseModel):
+    id: str
+    title: str
+    context: str
+    decision: str
+    consequences: str
+
+
+class ArchitectureRecommendResponse(BaseModel):
+    id: str
+    project_id: str
+    pattern: str
+    summary: str
+    components: list[ComponentOut]
+    data_stores: list[dict[str, str]]
+    security_patterns: list[str]
+    resilience_patterns: list[str]
+    deployment_topology: str
+    alternatives: list[AlternativeOut]
+    adrs: list[ADROut]
+    risks: list[str]
+    assumptions: list[str]
+    rationale: str
+    evidence: list[str]
+    provider: str
+    mermaid_diagram: str | None
+    source_requirement_count: int
+    created_at: str
+    updated_at: str
+
+
+# Sprint Planning & Estimation Schemas (Engineer 3)
+class NormalizedStoryIn(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=300)
+    priority: str = Field(default="should", max_length=20)
+    description: str = Field(default="", max_length=2000)
+    acceptance_criteria_count: int = Field(default=0, ge=0, le=100)
+    dependency_ids: list[str] = Field(default_factory=list)
+    risk_level: str = Field(default="medium", max_length=20)
+    complexity: str = Field(default="medium", max_length=20)
+    existing_estimate: int | None = Field(
+        default=None,
+        description="Fibonacci points (1, 2, 3, 5, 8, 13) if previously confirmed.",
+    )
+
+
+class SprintPlanRequest(BaseModel):
+    stories: list[NormalizedStoryIn] = Field(
+        default_factory=list,
+        description="Explicit normalized stories. If empty, project work items of record_type 'user_story' are used.",
+    )
+    capacity_story_points: int = Field(
+        default=30,
+        ge=1,
+        le=500,
+        description="Target story-point velocity per sprint.",
+    )
+    sprint_duration_weeks: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description="Sprint cycle length in weeks.",
+    )
+    start_date: str | None = Field(
+        default=None,
+        description="ISO date string for start of Sprint 1 (e.g. '2026-11-01'). Defaults to today.",
+    )
+
+
+class StoryEstimateOut(BaseModel):
+    story_id: str
+    estimated_points: int
+    rationale: str
+    confidence: str
+    assumption: str
+    retained_existing: bool
+
+
+class SprintOut(BaseModel):
+    id: str
+    project_id: str
+    sprint_number: int
+    name: str
+    goal: str
+    start_date: str
+    end_date: str
+    status: str
+    story_ids: list[str]
+    total_points: int
+    capacity: int
+    warnings: list[str] = Field(default_factory=list)
+    stories: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+class SprintPlanResponse(BaseModel):
+    sprints: list[SprintOut]
+    backlog: list[str]
+    backlog_reasons: dict[str, str]
+    estimates: list[StoryEstimateOut]
+    topo_order: list[str]
+    critical_path: list[str]
+    warnings: list[str]
+    overflow_policy: str
+    total_sprints: int
+    total_stories_planned: int
+    total_story_points: int

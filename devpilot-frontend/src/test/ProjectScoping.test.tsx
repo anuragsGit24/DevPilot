@@ -20,6 +20,8 @@ vi.mock('@/lib/api', () => ({
     createWorkItem: vi.fn(),
     updateWorkItem: vi.fn(),
     deleteWorkItem: vi.fn(),
+    listArtifacts: vi.fn().mockResolvedValue([]),
+    getArtifact: vi.fn(),
   },
 }));
 
@@ -31,6 +33,7 @@ function ScopingConsumer() {
     userStories,
     sprints,
     architecture,
+    assignStoryToSprint,
   } = useProjectData();
 
   return (
@@ -56,6 +59,7 @@ function ScopingConsumer() {
 
       <button onClick={() => setActiveProjectId('proj-A')}>Select Proj A</button>
       <button onClick={() => setActiveProjectId('proj-B')}>Select Proj B</button>
+      <button onClick={() => assignStoryToSprint('US-A2', 'wi-sprint-a1')}>Assign Story</button>
     </div>
   );
 }
@@ -252,6 +256,38 @@ describe('Project Data Scoping and Cross-Project Isolation (Engineer 3)', () => 
     expect(screen.getByText('Ledger Ingestion')).toBeInTheDocument();
     expect(screen.queryByText('Anomaly Scoring Pipeline')).not.toBeInTheDocument();
     expect(screen.getByTestId('arch-pattern')).toHaveTextContent('Modular Monolith');
+  });
+
+  it('assigning a story to an existing sprint calls updateWorkItem with existing id and never createWorkItem', async () => {
+    (api.updateWorkItem as any).mockResolvedValue({ id: 'wi-sprint-a1' });
+
+    render(
+      <ToastProvider>
+        <ProjectDataProvider>
+          <ScopingConsumer />
+        </ProjectDataProvider>
+      </ToastProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-project-id')).toHaveTextContent('proj-A');
+    });
+
+    const assignBtn = screen.getByRole('button', { name: /Assign Story/i });
+    await act(async () => {
+      fireEvent.click(assignBtn);
+    });
+
+    expect(api.updateWorkItem).toHaveBeenCalledWith(
+      'proj-A',
+      'wi-sprint-a1',
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          userStoryIds: expect.arrayContaining(['US-A1', 'US-A2']),
+        }),
+      })
+    );
+    expect(api.createWorkItem).not.toHaveBeenCalled();
   });
 });
 

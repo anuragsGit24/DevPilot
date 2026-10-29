@@ -27,69 +27,16 @@ router = APIRouter(prefix="/projects/{project_id}/architecture", tags=["architec
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Pydantic Schemas
+# Pydantic Schemas (canonical definitions in app.schemas)
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ArchitectureRecommendRequest(BaseModel):
-    """
-    Request payload for architecture recommendation.
-    Supports synthetic/supplementary constraints to enable autonomous evaluation
-    independent of upstream document ingestion.
-    """
-    context: str = Field(
-        default="",
-        max_length=8000,
-        description="Explicit requirement constraints, non-functional targets, or compliance signals.",
-    )
-    requirement_ids: list[uuid.UUID] | None = Field(
-        default=None,
-        description="Optional list of specific requirement UUIDs to scope the evaluation.",
-    )
-
-
-class ComponentOut(BaseModel):
-    name: str
-    role: str
-    technology: str
-    responsibilities: list[str] = Field(default_factory=list)
-
-
-class AlternativeOut(BaseModel):
-    name: str
-    rationale: str
-    tradeoffs: str
-
-
-class ADROut(BaseModel):
-    id: str
-    title: str
-    context: str
-    decision: str
-    consequences: str
-
-
-class ArchitectureRecommendResponse(BaseModel):
-    """Structured, validated response representing an architectural blueprint."""
-    id: str
-    project_id: str
-    pattern: str
-    summary: str
-    components: list[ComponentOut]
-    data_stores: list[dict[str, str]]
-    security_patterns: list[str]
-    resilience_patterns: list[str]
-    deployment_topology: str
-    alternatives: list[AlternativeOut]
-    adrs: list[ADROut]
-    risks: list[str]
-    assumptions: list[str]
-    rationale: str
-    evidence: list[str]
-    provider: str
-    mermaid_diagram: str | None
-    source_requirement_count: int
-    created_at: str
-    updated_at: str
+from app.schemas import (
+    ADROut,
+    AlternativeOut,
+    ArchitectureRecommendRequest,
+    ArchitectureRecommendResponse,
+    ComponentOut,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

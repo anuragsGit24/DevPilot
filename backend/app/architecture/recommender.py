@@ -453,9 +453,11 @@ def generate_architecture_recommendation(
     adrs = _ADRS.get(pattern, [])
 
     req_count = len(requirements)
+    active_signals = [k.replace('_', ' ') for k, v in scores.items() if v > 0]
+    signals_summary = f"Detected signals: {', '.join(active_signals)}." if active_signals else "No dominant high-scale or distributed signals detected."
     rationale = (
         f"Analysed {req_count} project requirement(s) and explicit context signal(s). "
-        f"Signal scores: {scores}. "
+        f"{signals_summary} "
         f"Chosen pattern: {pattern}. "
         + " ".join(evidence)
     )

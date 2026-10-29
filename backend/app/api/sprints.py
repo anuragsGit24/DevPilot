@@ -12,12 +12,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, get_client_ip, verify_project_access
 from app.core.audit import record_audit_log
-from app.models import WorkItem
+from app.models import Artifact, ArtifactType, ArtifactVersion, WorkItem
+from app.schemas import (
+    NormalizedStoryIn,
+    SprintOut,
+    SprintPlanRequest,
+    SprintPlanResponse,
+    StoryEstimateOut,
+)
 from app.sprints.planner import (
     DEFAULT_SPRINT_CAPACITY,
     DEFAULT_SPRINT_DURATION_WEEKS,
@@ -27,98 +33,6 @@ from app.sprints.planner import (
 )
 
 router = APIRouter(prefix="/projects/{project_id}/sprints", tags=["sprints"])
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Pydantic Schemas
-# ──────────────────────────────────────────────────────────────────────────────
-
-class NormalizedStoryIn(BaseModel):
-    """
-    Standardized user story representation for estimation and dependency scheduling.
-    Allows synthetic or ad-hoc story sets to be planned directly via API.
-    """
-    id: str = Field(min_length=1, max_length=100)
-    title: str = Field(min_length=1, max_length=300)
-    priority: str = Field(default="should", max_length=20)
-    description: str = Field(default="", max_length=2000)
-    acceptance_criteria_count: int = Field(default=0, ge=0, le=100)
-    dependency_ids: list[str] = Field(default_factory=list)
-    risk_level: str = Field(default="medium", max_length=20)
-    complexity: str = Field(default="medium", max_length=20)
-    existing_estimate: int | None = Field(
-        default=None,
-        description="Fibonacci points (1, 2, 3, 5, 8, 13) if previously confirmed.",
-    )
-
-
-class SprintPlanRequest(BaseModel):
-    """
-    Request parameters for generating a sprint schedule.
-    If ``stories`` is provided, it takes precedence over persisted stories in the DB.
-    """
-    stories: list[NormalizedStoryIn] = Field(
-        default_factory=list,
-        description="Explicit normalized stories. If empty, project work items of record_type 'user_story' are used.",
-    )
-    capacity_story_points: int = Field(
-        default=DEFAULT_SPRINT_CAPACITY,
-        ge=1,
-        le=500,
-        description="Target story-point velocity per sprint.",
-    )
-    sprint_duration_weeks: int = Field(
-        default=DEFAULT_SPRINT_DURATION_WEEKS,
-        ge=1,
-        le=8,
-        description="Sprint cycle length in weeks.",
-    )
-    start_date: str | None = Field(
-        default=None,
-        description="ISO date string for start of Sprint 1 (e.g. '2026-11-01'). Defaults to today.",
-    )
-
-
-class StoryEstimateOut(BaseModel):
-    story_id: str
-    estimated_points: int
-    rationale: str
-    confidence: str
-    assumption: str
-    retained_existing: bool
-
-
-class SprintOut(BaseModel):
-    id: str
-    project_id: str
-    sprint_number: int
-    name: str
-    goal: str
-    start_date: str
-    end_date: str
-    status: str
-    story_ids: list[str]
-    total_points: int
-    capacity: int
-    warnings: list[str] = Field(default_factory=list)
-    stories: list[dict[str, Any]] = Field(default_factory=list)
-    created_at: str
-    updated_at: str
-
-
-class SprintPlanResponse(BaseModel):
-    """Comprehensive plan detailing sprint allocations, estimates, and critical paths."""
-    sprints: list[SprintOut]
-    backlog: list[str]
-    backlog_reasons: dict[str, str]
-    estimates: list[StoryEstimateOut]
-    topo_order: list[str]
-    critical_path: list[str]
-    warnings: list[str]
-    overflow_policy: str
-    total_sprints: int
-    total_stories_planned: int
-    total_story_points: int
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -164,7 +78,8 @@ def _work_item_to_sprint_out(item: WorkItem) -> SprintOut:
     description=(
         "Performs Fibonacci story point estimation, verifies DAG dependency validity, "
         "topologically sequences stories, and packs them into capacity-constrained sprints. "
-        "Persists the resulting plan as sprint work items, replacing any previous sprint plan."
+        "Persists the resulting plan as sprint work items, replacing any previous auto-planned sprints "
+        "while safely preserving manual and unmarked legacy sprint records."
     ),
 )
 async def plan_sprints_endpoint(
@@ -179,6 +94,15 @@ async def plan_sprints_endpoint(
     stories: list[NormalizedStory] = []
 
     if payload.stories:
+        # Strict validation: reject duplicate story IDs with clear 422 response
+        raw_ids = [s.id for s in payload.stories]
+        if len(raw_ids) != len(set(raw_ids)):
+            duplicates = sorted(list({sid for sid in raw_ids if raw_ids.count(sid) > 1}))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Duplicate story ID(s) detected: {', '.join(duplicates)}. Each user story must have a unique ID.",
+            )
+
         for s in payload.stories:
             stories.append(
                 NormalizedStory(
@@ -194,22 +118,83 @@ async def plan_sprints_endpoint(
                 )
             )
     else:
-        # Load from persisted project user_story work items
-        result = await session.execute(
-            select(WorkItem).where(
+        # Load genuine persisted user stories from project storage:
+        seen_story_ids: set[str] = set()
+
+        # 1. Versioned Artifacts generated by Engineer 2's AI generation pipeline
+        art_stmt = (
+            select(Artifact)
+            .where(
+                Artifact.project_id == project_id,
+                Artifact.artifact_type == ArtifactType.user_stories,
+            )
+            .order_by(Artifact.created_at.desc())
+        )
+        art_res = await session.execute(art_stmt)
+        user_story_artifacts = art_res.scalars().all()
+
+        for art in user_story_artifacts:
+            ver_stmt = (
+                select(ArtifactVersion)
+                .where(ArtifactVersion.artifact_id == art.id)
+                .order_by(ArtifactVersion.version_number.desc())
+                .limit(1)
+            )
+            ver_res = await session.execute(ver_stmt)
+            latest_version = ver_res.scalar_one_or_none()
+            if latest_version and isinstance(latest_version.payload, dict):
+                artifact_stories = latest_version.payload.get("stories", [])
+                for s in artifact_stories:
+                    sid = str(s.get("story_key") or s.get("id") or "").strip()
+                    if not sid or sid in seen_story_ids:
+                        continue
+                    seen_story_ids.add(sid)
+                    desc = ""
+                    if s.get("as_a") or s.get("i_want"):
+                        desc = f"As a {s.get('as_a', '')}, I want {s.get('i_want', '')} so that {s.get('so_that', '')}"
+                    else:
+                        desc = str(s.get("description", ""))
+
+                    stories.append(
+                        NormalizedStory(
+                            id=sid,
+                            title=str(s.get("title", f"User Story {sid}")),
+                            priority=str(s.get("priority", "should")),
+                            description=desc,
+                            acceptance_criteria_count=len(s.get("acceptance_criteria_hints", [])),
+                            dependency_ids=[str(d) for d in s.get("dependency_ids", [])],
+                            risk_level=str(s.get("risk_level", "medium")),
+                            complexity=str(s.get("complexity", "medium")),
+                            existing_estimate=(
+                                int(s["estimated_story_points"])
+                                if s.get("estimated_story_points") and int(s["estimated_story_points"]) > 0
+                                else None
+                            ),
+                        )
+                    )
+
+        # 2. Persisted project user_story work items (manual or customized stories)
+        wi_stmt = (
+            select(WorkItem)
+            .where(
                 WorkItem.project_id == project_id,
                 WorkItem.record_type == "user_story",
             )
+            .order_by(WorkItem.created_at.asc())
         )
-        db_stories = result.scalars().all()
-        for item in db_stories:
+        wi_res = await session.execute(wi_stmt)
+        for item in wi_res.scalars().all():
             p = item.payload or {}
+            sid = str(p.get("id", item.id)).strip()
+            if not sid or sid in seen_story_ids:
+                continue
+            seen_story_ids.add(sid)
             stories.append(
                 NormalizedStory(
-                    id=str(p.get("id", item.id)),
+                    id=sid,
                     title=item.title,
                     priority=str(p.get("priority", "should")),
-                    description=str(p.get("description", "")),
+                    description=str(p.get("description", p.get("benefit", ""))),
                     acceptance_criteria_count=int(p.get("acceptance_criteria_count", len(p.get("acceptanceCriteria", [])))),
                     dependency_ids=[str(d) for d in p.get("dependency_ids", p.get("dependencyIds", []))],
                     risk_level=str(p.get("risk_level", "medium")),
@@ -223,7 +208,7 @@ async def plan_sprints_endpoint(
     if not stories:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No user stories available to plan. Provide 'stories' in request or ingest user stories first.",
+            detail="No user stories available to plan. Provide 'stories' in request or ingest/generate user stories first.",
         )
 
     # Execute deterministic planning engine
@@ -239,14 +224,22 @@ async def plan_sprints_endpoint(
             detail=str(exc),
         )
 
-    # Determine start date
-    try:
-        base_dt = datetime.fromisoformat(payload.start_date) if payload.start_date else datetime.now(timezone.utc)
-    except ValueError:
+    # Determine start date with strict format validation
+    if payload.start_date:
+        try:
+            base_dt = datetime.fromisoformat(payload.start_date)
+            if base_dt.tzinfo is None:
+                base_dt = base_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid start_date format '{payload.start_date}'. Must be an ISO-8601 formatted date (e.g. '2026-11-01').",
+            )
+    else:
         base_dt = datetime.now(timezone.utc)
 
-    # Safe persistence: purge prior auto-planned sprint records for this project before saving new plan
-    # Explicitly protect and preserve manual sprints and non-planner work items
+    # Safe persistence: delete ONLY records explicitly marked as auto-planner generated.
+    # Preserve manual records (source=="manual") and unmarked/legacy records without source.
     existing_sprints_result = await session.execute(
         select(WorkItem).where(
             WorkItem.project_id == project_id,
@@ -255,10 +248,13 @@ async def plan_sprints_endpoint(
     )
     for old_sprint in existing_sprints_result.scalars().all():
         p = old_sprint.payload or {}
-        if p.get("source") == "manual" or p.get("is_manual") is True:
-            # Preserve manual sprint
-            continue
-        await session.delete(old_sprint)
+        is_auto_planned = (
+            p.get("source") == "auto_planner"
+            or p.get("is_auto_planned") is True
+        )
+        if is_auto_planned:
+            await session.delete(old_sprint)
+        # Manual and unmarked legacy records are preserved!
     await session.flush()
 
     sprint_items: list[WorkItem] = []

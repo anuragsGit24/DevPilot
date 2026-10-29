@@ -131,6 +131,7 @@ export interface Requirement {
 
 export interface UserStory {
   id: string;
+  apiId?: string;
   projectId: string;
   artifactVersionId?: string;
   requirementId?: string;
@@ -328,6 +329,7 @@ export interface SprintItem {
 
 export interface Sprint {
   id: string;
+  apiId?: string;
   projectId: string;
   name: string;
   goal: string;
