@@ -416,6 +416,83 @@ class LLMClient:
                 },
                 "x-source-requirement-keys": req_keys,
             }
+
+        elif "Architecture" in schema_name or "architecture" in system_prompt.lower():
+            parsed = {
+                "pattern": "Modular Monolith",
+                "summary": "Enterprise Modular Monolith architecture balancing separation of concerns with operational simplicity.",
+                "components": [
+                    {
+                        "name": "API Gateway",
+                        "role": "Edge entry point and TLS termination",
+                        "technology": "FastAPI + Traefik",
+                        "responsibilities": ["Authentication", "Rate limiting", "Request routing"],
+                    },
+                    {
+                        "name": "Core Application Service",
+                        "role": "Modular domain execution engine",
+                        "technology": "FastAPI / Python",
+                        "responsibilities": ["Business logic execution", "Audit logging", "Transaction validation"],
+                    },
+                    {
+                        "name": "Database Layer",
+                        "role": "Relational Persistence & Vector Search",
+                        "technology": "PostgreSQL / SQLAlchemy / pgvector",
+                        "responsibilities": ["ACID transaction durability", "Relational querying", "Vector similarity retrieval"],
+                    },
+                ],
+                "data_stores": [
+                    {
+                        "type": "Relational",
+                        "technology": "PostgreSQL 16",
+                        "rationale": "Primary transactional datastore ensuring ACID consistency across domains.",
+                    },
+                    {
+                        "type": "Cache",
+                        "technology": "Redis",
+                        "rationale": "In-memory caching of authenticated sessions and rate-limit token buckets.",
+                    },
+                ],
+                "security_patterns": [
+                    "Role-Based Access Control (RBAC)",
+                    "JWT Bearer Token Authentication",
+                    "TLS 1.3 Encryption in Transit",
+                    "Database Encryption at Rest (AES-256)",
+                ],
+                "resilience_patterns": [
+                    "Database Connection Pooling",
+                    "Circuit Breakers on External APIs",
+                    "Graceful Degradation with Cached Reads",
+                ],
+                "deployment_topology": "Cloud Run serverless container runtime with Cloud SQL PostgreSQL.",
+                "alternatives": [
+                    {
+                        "name": "Microservices",
+                        "rationale": "Evaluated for independent service lifecycle autonomy.",
+                        "tradeoffs": "Introduces significant distributed coordination overhead and network latency.",
+                    }
+                ],
+                "adrs": [
+                    {
+                        "id": "ADR-001",
+                        "title": "Adopt Modular Monolith Architecture",
+                        "context": "Rapid domain evolution and high performance require low operational complexity.",
+                        "decision": "Enforce bounded domain modules within a single deployable application container.",
+                        "consequences": "Simplifies CI/CD pipelines and testing while preserving future service extraction paths.",
+                    }
+                ],
+                "risks": [
+                    "Potential domain coupling if code review boundaries are not strictly preserved.",
+                ],
+                "assumptions": [
+                    "Peak concurrency is within single-cluster Cloud Run autoscaling limits.",
+                ],
+                "rationale": "A modular monolith provides optimal engineering velocity and zero distributed transaction latency.",
+                "evidence": [
+                    f"Requirements ({', '.join(req_keys)}) demand strong transactional consistency and rapid iteration.",
+                ],
+            }
+
         else:
             parsed = {"status": "success", "source_requirement_keys": req_keys}
 

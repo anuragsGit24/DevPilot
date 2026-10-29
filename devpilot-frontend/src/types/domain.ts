@@ -131,6 +131,7 @@ export interface Requirement {
 
 export interface UserStory {
   id: string;
+  apiId?: string;
   projectId: string;
   artifactVersionId?: string;
   requirementId?: string;
@@ -289,7 +290,7 @@ export interface ArchitectureRecommendation {
   title: string;
   summary: string;
   pattern: string;
-  components: { name: string; role: string; technology: string }[];
+  components: { name: string; role: string; technology: string; responsibilities?: string[] }[];
   decisions?: { id: string; title: string; context: string; decision: string; consequences: string }[];
   securityConsiderations: string[];
   deploymentTopology: string;
@@ -301,6 +302,13 @@ export interface ArchitectureRecommendation {
   sourceRequirementIds: string[];
   createdAt: string;
   updatedAt: string;
+  dataStores?: Array<{ type: string; technology: string; rationale: string }>;
+  data_stores?: Array<{ type: string; technology: string; rationale: string }>;
+  resiliencePatterns?: string[];
+  resilience_patterns?: string[];
+  rationale?: string;
+  evidence?: string[];
+  provider?: string;
 }
 
 // ------ Sprint Planning ------
@@ -321,6 +329,7 @@ export interface SprintItem {
 
 export interface Sprint {
   id: string;
+  apiId?: string;
   projectId: string;
   name: string;
   goal: string;
@@ -338,6 +347,9 @@ export interface Sprint {
   userStoryIds?: string[];
   warnings?: string[];
   createdAt?: string;
+  source?: string;
+  isAutoPlanned?: boolean;
+  isManual?: boolean;
 }
 
 // ------ Prompt Library ------

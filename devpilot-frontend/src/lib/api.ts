@@ -79,6 +79,103 @@ export interface ApiArtifact {
   current_version: ApiArtifactVersion | null;
 }
 
+export interface ApiArchitectureComponent {
+  name: string;
+  role: string;
+  technology: string;
+  responsibilities: string[];
+}
+
+export interface ApiArchitectureAlternative {
+  name: string;
+  rationale: string;
+  tradeoffs: string;
+}
+
+export interface ApiArchitectureADR {
+  id: string;
+  title: string;
+  context: string;
+  decision: string;
+  consequences: string;
+}
+
+export interface ApiArchitectureRecommendation {
+  id: string;
+  project_id: string;
+  pattern: string;
+  summary: string;
+  components: ApiArchitectureComponent[];
+  data_stores: Array<{ type: string; technology: string; rationale: string }>;
+  security_patterns: string[];
+  resilience_patterns: string[];
+  deployment_topology: string;
+  alternatives: ApiArchitectureAlternative[];
+  adrs: ApiArchitectureADR[];
+  risks: string[];
+  assumptions: string[];
+  rationale: string;
+  evidence: string[];
+  provider: string;
+  mermaid_diagram: string | null;
+  source_requirement_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiNormalizedStoryIn {
+  id: string;
+  title: string;
+  priority?: string;
+  description?: string;
+  acceptance_criteria_count?: number;
+  dependency_ids?: string[];
+  risk_level?: string;
+  complexity?: string;
+  existing_estimate?: number | null;
+}
+
+export interface ApiStoryEstimate {
+  story_id: string;
+  estimated_points: number;
+  rationale: string;
+  confidence: string;
+  assumption: string;
+  retained_existing: boolean;
+}
+
+export interface ApiSprintOut {
+  id: string;
+  project_id: string;
+  sprint_number: number;
+  name: string;
+  goal: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  story_ids: string[];
+  total_points: number;
+  capacity: number;
+  warnings: string[];
+  stories: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiSprintPlanResponse {
+  sprints: ApiSprintOut[];
+  backlog: string[];
+  backlog_reasons: Record<string, string>;
+  estimates: ApiStoryEstimate[];
+  topo_order: string[];
+  critical_path: string[];
+  warnings: string[];
+  overflow_policy: string;
+  total_sprints: number;
+  total_stories_planned: number;
+  total_story_points: number;
+}
+
 class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
 
@@ -358,6 +455,11 @@ class ApiClient {
     });
   }
 
+  public async listArtifacts(projectId: string, artifactType?: string): Promise<ApiArtifact[]> {
+    const query = artifactType ? `?artifact_type=${encodeURIComponent(artifactType)}` : '';
+    return this.request<ApiArtifact[]>(`/projects/${projectId}/artifacts${query}`);
+  }
+
   public async getArtifact(projectId: string, artifactId: string): Promise<ApiArtifact> {
     return this.request<ApiArtifact>(`/projects/${projectId}/artifacts/${artifactId}`);
   }
@@ -375,6 +477,41 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  }
+
+  // Architecture Recommendation Engine
+  public async recommendArchitecture(
+    projectId: string,
+    payload: { context?: string; requirement_ids?: string[] } = {},
+  ): Promise<ApiArchitectureRecommendation> {
+    return this.request<ApiArchitectureRecommendation>(`/projects/${projectId}/architecture/recommend`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async getArchitecture(projectId: string): Promise<ApiArchitectureRecommendation> {
+    return this.request<ApiArchitectureRecommendation>(`/projects/${projectId}/architecture`);
+  }
+
+  // Sprint Planning & Estimation Engine
+  public async planSprints(
+    projectId: string,
+    payload: {
+      stories?: ApiNormalizedStoryIn[];
+      capacity_story_points?: number;
+      sprint_duration_weeks?: number;
+      start_date?: string;
+    } = {},
+  ): Promise<ApiSprintPlanResponse> {
+    return this.request<ApiSprintPlanResponse>(`/projects/${projectId}/sprints/plan`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async listSprints(projectId: string): Promise<ApiSprintOut[]> {
+    return this.request<ApiSprintOut[]>(`/projects/${projectId}/sprints`);
   }
 
   public async updateArtifactStatus(
