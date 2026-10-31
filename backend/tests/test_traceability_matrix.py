@@ -220,3 +220,54 @@ def test_coverage_scoring_matches_weights():
     assert by_req["REQ-002"].score == pytest.approx(1.0)
     # REQ-003 has story + criteria + test => 1.0
     assert by_req["REQ-003"].score == pytest.approx(1.0)
+
+
+def test_duplicates_and_self_links_deduped():
+    """Repeated keys across artifacts and repeated references collapse to one.
+
+    Guards the dedup contract in build_matrix: the same node key emitted by two
+    artifact rows must yield a single node, a repeated ``source_requirement_keys``
+    entry must yield a single edge, and coverage lists must not accumulate
+    duplicates. Self-loops (same kind+key on both ends) are dropped defensively.
+    """
+    artifacts = [
+        {
+            "artifact_type": "user_stories",
+            "title": "Stories A",
+            "version_number": 1,
+            "payload": {
+                "stories": [
+                    {
+                        "story_key": "US-001",
+                        "title": "Register",
+                        "source_requirement_keys": ["REQ-001", "REQ-001"],
+                    }
+                ]
+            },
+        },
+        {
+            "artifact_type": "user_stories",
+            "title": "Stories B (duplicate keys)",
+            "version_number": 1,
+            "payload": {
+                "stories": [
+                    {
+                        "story_key": "US-001",
+                        "title": "Register (duplicate)",
+                        "source_requirement_keys": ["REQ-001"],
+                    }
+                ]
+            },
+        },
+    ]
+
+    matrix = build_matrix(_requirements(), artifacts)
+
+    story_nodes = [node for node in matrix.nodes if node.kind == KIND_STORY]
+    assert [node.key for node in story_nodes] == ["US-001"]  # duplicate node collapsed
+
+    story_edges = [edge for edge in matrix.edges if edge.source_kind == KIND_STORY]
+    assert len(story_edges) == 1  # duplicate requirement reference deduped
+
+    by_req = {item.requirement_key: item for item in matrix.coverage}
+    assert by_req["REQ-001"].covered_by["user_story"] == ["US-001"]

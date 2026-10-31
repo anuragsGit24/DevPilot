@@ -6,13 +6,20 @@ from e4_helpers import fully_covered_artifacts, make_artifact_version
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.evaluations.service import run_project_evaluation
 from app.models import (
     ArtifactType,
     AuditLog,
     Evaluation,
+    EvaluationStatus,
     Project,
     ProjectMember,
+    Prompt,
+    PromptLifecycleState,
+    PromptRegressionRun,
+    PromptVersion,
     Requirement,
     UserRole,
 )
@@ -215,3 +222,128 @@ async def test_traceability_matrix_empty_project_conflict(
         f"/api/v1/projects/{bare_project.id}/traceability/matrix", headers=e4["pm_headers"]
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_migration_models_persist(
+    db_session: AsyncSession, e4_users_and_projects: dict
+):
+    """Migration 0006 models round-trip every JSON/relational column through SQLite."""
+    from datetime import UTC, datetime
+
+    e4 = e4_users_and_projects
+    now = datetime.now(UTC)
+
+    evaluation = Evaluation(
+        project_id=e4["project"].id,
+        status=EvaluationStatus.completed,
+        triggered_by="manual",
+        created_by=e4["pm"].id,
+        completed_at=now,
+        artifact_stats={"artifact_count": 2, "types": {"user_stories": 1}},
+        metrics={"coverage": {"requirements_total": 3}},
+        issues=[{"type": "orphan_requirement", "key": "REQ-003", "detail": "no cover"}],
+        scores={"completeness": 0.9, "groundedness": 0.8, "consistency": 1.0, "overall": 0.89},
+        summary="Round-trip check",
+        rubric_metadata={"grounding_method": "lexical_fallback"},
+    )
+    prompt = Prompt(
+        project_id=e4["project"].id,
+        prompt_key="user_stories_v1",
+        name="User Story Generation Prompt",
+        description="seeded",
+        artifact_type="user_stories",
+        lifecycle_state=PromptLifecycleState.draft,
+        created_by=e4["pm"].id,
+    )
+    db_session.add_all([evaluation, prompt])
+    await db_session.flush()
+
+    version = PromptVersion(
+        prompt_id=prompt.id,
+        version_number=1,
+        system_prompt="system",
+        user_prompt="user {x}",
+        model="mock",
+        temperature=0.2,
+        checksum="a" * 64,
+        variables=["x"],
+        created_by=e4["pm"].id,
+    )
+    db_session.add(version)
+    await db_session.flush()
+
+    regression = PromptRegressionRun(
+        prompt_id=prompt.id,
+        candidate_version_id=version.id,
+        baseline_version_id=None,
+        is_pass=True,
+        results=[{"test_id": "user_stories_baseline", "verdict": "pass"}],
+        run_by=e4["pm"].id,
+    )
+    db_session.add(regression)
+    await db_session.commit()
+
+    db_session.expunge_all()  # force a real DB round-trip into fresh instances
+    loaded_eval = (
+        await db_session.execute(select(Evaluation).where(Evaluation.id == evaluation.id))
+    ).scalar_one()
+    assert loaded_eval.status == EvaluationStatus.completed
+    assert loaded_eval.triggered_by == "manual"
+    assert loaded_eval.scores["overall"] == pytest.approx(0.89)
+    assert loaded_eval.issues[0]["type"] == "orphan_requirement"
+    assert loaded_eval.artifact_stats["types"] == {"user_stories": 1}
+    assert loaded_eval.rubric_metadata == {"grounding_method": "lexical_fallback"}
+
+    loaded_prompt = (
+        await db_session.execute(
+            select(Prompt).where(Prompt.id == prompt.id).options(selectinload(Prompt.versions))
+        )
+    ).scalar_one()
+    assert loaded_prompt.lifecycle_state == PromptLifecycleState.draft
+    assert loaded_prompt.active_version_number is None
+    assert loaded_prompt.versions[0].checksum == "a" * 64
+    assert loaded_prompt.versions[0].variables == ["x"]
+    assert loaded_prompt.versions[0].temperature == pytest.approx(0.2)
+
+    loaded_reg = (
+        await db_session.execute(
+            select(PromptRegressionRun).where(PromptRegressionRun.id == regression.id)
+        )
+    ).scalar_one()
+    assert loaded_reg.is_pass is True
+    assert loaded_reg.baseline_version_id is None
+    assert loaded_reg.results[0]["verdict"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_failure_persists_failed_status(
+    db_session: AsyncSession, e4_users_and_projects: dict, monkeypatch
+):
+    """An unexpected rubric error persists a `failed` row instead of leaking a `running` one."""
+    from app.evaluations import service as service_module
+
+    e4 = e4_users_and_projects
+    await _seed_artifacts(db_session, e4)
+    project_id = e4["project"].id
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("embedding backend exploded")
+
+    monkeypatch.setattr(service_module, "embed_texts", _boom)
+
+    with pytest.raises(RuntimeError):
+        await run_project_evaluation(db_session, project_id, e4["pm"], triggered_by="test")
+
+    rows = (
+        await db_session.execute(select(Evaluation).where(Evaluation.project_id == project_id))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == EvaluationStatus.failed
+    assert rows[0].completed_at is not None
+    assert rows[0].issues == [{"type": "evaluation_error", "detail": "embedding backend exploded"}]
+
+    failed_logs = (
+        await db_session.execute(select(AuditLog).where(AuditLog.action == "EVALUATION_FAILED"))
+    ).scalars().all()
+    assert len(failed_logs) == 1

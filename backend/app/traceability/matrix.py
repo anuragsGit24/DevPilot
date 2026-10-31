@@ -142,8 +142,31 @@ def build_matrix(
         key: {} for key in requirement_titles
     }
 
+    seen_nodes: set[tuple[str, str]] = set()
+    seen_edges: set[tuple[str, str, str, str, str]] = set()
+
+    def _add_node(kind: str, key: str, title: str | None = None) -> None:
+        """Append a node once; the same key across artifacts collapses to one node."""
+        identity = (kind, key)
+        if identity in seen_nodes:
+            return
+        seen_nodes.add(identity)
+        nodes.append(TraceNode(kind=kind, key=key, title=title))
+
+    def _add_edge(edge: TraceEdge) -> None:
+        """Append an edge once; self-links and duplicate links are dropped."""
+        if edge.source_kind == edge.target_kind and edge.source_key == edge.target_key:
+            return
+        identity = (
+            edge.source_kind, edge.source_key, edge.target_kind, edge.target_key, edge.relation,
+        )
+        if identity in seen_edges:
+            return
+        seen_edges.add(identity)
+        edges.append(edge)
+
     for req_key, title in sorted(requirement_titles.items()):
-        nodes.append(TraceNode(kind=KIND_REQUIREMENT, key=req_key, title=title))
+        _add_node(KIND_REQUIREMENT, req_key, title)
 
     def _register(kind: str, source_key: str, req_keys: list[str], origin_key: str) -> None:
         for req_key in req_keys:
@@ -157,10 +180,12 @@ def build_matrix(
                     )
                 )
                 continue
-            edges.append(TraceEdge(source_kind=kind, source_key=source_key,
-                                   target_kind=KIND_REQUIREMENT, target_key=req_key,
-                                   relation=relation_for_kind(kind)))
-            coverage[req_key].setdefault(kind, []).append(source_key)
+            _add_edge(TraceEdge(source_kind=kind, source_key=source_key,
+                                target_kind=KIND_REQUIREMENT, target_key=req_key,
+                                relation=relation_for_kind(kind)))
+            covered = coverage[req_key].setdefault(kind, [])
+            if source_key not in covered:
+                covered.append(source_key)
 
     for entry in versioned_artifacts:
         artifact_type = str(entry.get("artifact_type"))
@@ -168,7 +193,7 @@ def build_matrix(
 
         if artifact_type == "user_stories":
             for story_key, title, req_keys in extract_story_links(payload):
-                nodes.append(TraceNode(kind=KIND_STORY, key=story_key, title=title))
+                _add_node(KIND_STORY, story_key, title)
                 if not [key for key in req_keys if key in requirement_titles]:
                     gaps.append(TraceabilityGap(
                         type="speculative_story", kind=KIND_STORY, key=story_key,
@@ -178,11 +203,11 @@ def build_matrix(
 
         elif artifact_type == "acceptance_criteria":
             for criteria_key, story_key, req_keys in extract_criteria_links(payload):
-                nodes.append(TraceNode(kind=KIND_CRITERIA, key=criteria_key))
+                _add_node(KIND_CRITERIA, criteria_key)
                 if story_key:
-                    edges.append(TraceEdge(source_kind=KIND_CRITERIA, source_key=criteria_key,
-                                           target_kind=KIND_STORY, target_key=story_key,
-                                           relation="verifies"))
+                    _add_edge(TraceEdge(source_kind=KIND_CRITERIA, source_key=criteria_key,
+                                        target_kind=KIND_STORY, target_key=story_key,
+                                        relation="verifies"))
                 else:
                     gaps.append(TraceabilityGap(
                         type="missing_story_link", kind=KIND_CRITERIA, key=criteria_key,
@@ -192,7 +217,7 @@ def build_matrix(
 
         elif artifact_type == "test_cases":
             for test_key, _title, req_keys in extract_test_links(payload):
-                nodes.append(TraceNode(kind=KIND_TEST, key=test_key, title=_title))
+                _add_node(KIND_TEST, test_key, _title)
                 if not [key for key in req_keys if key in requirement_titles]:
                     gaps.append(TraceabilityGap(
                         type="missing_requirement_coverage", kind=KIND_TEST, key=test_key,
@@ -202,7 +227,7 @@ def build_matrix(
 
         elif artifact_type == "api_specification":
             for endpoint_key, summary, req_keys in extract_endpoint_links(payload):
-                nodes.append(TraceNode(kind=KIND_ENDPOINT, key=endpoint_key, title=summary))
+                _add_node(KIND_ENDPOINT, endpoint_key, summary)
                 _register(KIND_ENDPOINT, endpoint_key, req_keys, endpoint_key)
 
     # Gap analysis: orphan requirements (asked for, but nothing generated)
