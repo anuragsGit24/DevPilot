@@ -176,6 +176,45 @@ export interface ApiSprintPlanResponse {
   total_story_points: number;
 }
 
+export interface ApiRequirement {
+  id: string;
+  project_id: string;
+  requirement_key: string;
+  title: string;
+  description: string;
+  category: string | null;
+  priority: string | null;
+  source_document: string | null;
+  source_location: Record<string, unknown> | null;
+  embedding_metadata: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ApiRequirementsUpload {
+  document_id: string;
+  filename: string;
+  requirements: ApiRequirement[];
+  total_extracted: number;
+}
+
+export interface ApiTraceabilityLink {
+  requirement_id: string;
+  requirement_title: string;
+  story_ids: string[];
+  criteria_ids: string[];
+  test_case_ids: string[];
+  spec_endpoints: string[];
+  coverage_score: number;
+}
+
+export interface ApiTraceabilityMatrix {
+  links: ApiTraceabilityLink[];
+  orphaned_requirements: string[];
+  speculative_stories: string[];
+  coverage_score: number;
+}
+
 class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
 
@@ -238,11 +277,11 @@ class ApiClient {
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       try {
-        const errorJson = await response.json();
+        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
         if (errorJson?.error?.message) {
           errorMessage = errorJson.error.message;
         } else if (errorJson?.detail) {
-          errorMessage = errorJson.detail;
+          errorMessage = String(errorJson.detail);
         }
       } catch {
         // Fallback to response.statusText
@@ -523,6 +562,77 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
+  }
+
+  // Requirements List & Upload
+  public async listRequirements(
+    projectId: string,
+    filters?: { category?: string; priority?: string },
+  ): Promise<ApiRequirement[]> {
+    const query = new URLSearchParams();
+    if (filters?.category) query.set('category', filters.category);
+    if (filters?.priority) query.set('priority', filters.priority);
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    return this.request<ApiRequirement[]>(`/projects/${projectId}/requirements${queryString}`);
+  }
+
+  public async uploadRequirements(projectId: string, file: File): Promise<ApiRequirementsUpload> {
+    const token = this.getAccessToken();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/requirements/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
+        if (errorJson?.error?.message) errorMessage = errorJson.error.message;
+        else if (errorJson?.detail) errorMessage = String(errorJson.detail);
+      } catch { /* fallback */ }
+      throw new Error(errorMessage);
+    }
+    return response.json() as Promise<ApiRequirementsUpload>;
+  }
+
+  // Export ZIP
+  public async exportZip(projectId: string, formats: string[]): Promise<Blob> {
+    const token = this.getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/export/zip`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      body: JSON.stringify({ formats }),
+    });
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
+        if (errorJson?.error?.message) errorMessage = errorJson.error.message;
+        else if (errorJson?.detail) errorMessage = String(errorJson.detail);
+      } catch { /* fallback */ }
+      throw new Error(errorMessage);
+    }
+    return response.blob();
+  }
+
+  // Traceability Matrix
+  public async getTraceabilityMatrix(projectId: string): Promise<ApiTraceabilityMatrix> {
+    try {
+      return await this.request<ApiTraceabilityMatrix>(`/projects/${projectId}/traceability/matrix`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('404') || message.includes('Not Found')) {
+        return { links: [], orphaned_requirements: [], speculative_stories: [], coverage_score: 0 };
+      }
+      throw err;
+    }
   }
 }
 

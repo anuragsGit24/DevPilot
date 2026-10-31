@@ -7,15 +7,16 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Textarea } from '@/components/ui/Input';
 import {
   Cpu, Sparkles, Shield, AlertTriangle, CheckCircle2,
-  Database, Server
+  Database, Server, Network
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { MermaidViewer } from '@/components/diagrams/MermaidViewer';
 
 export function ArchitecturePage() {
   const { architecture, generateArchitectureRecommendation, isProcessing } = useProjectData();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'stack' | 'datastores' | 'adrs' | 'risks' | 'tradeoffs'>('stack');
+  const [activeTab, setActiveTab] = useState<'stack' | 'diagram' | 'datastores' | 'adrs' | 'risks' | 'tradeoffs'>('stack');
   const [modalOpen, setModalOpen] = useState(false);
   const [customContext, setCustomContext] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -155,6 +156,7 @@ export function ArchitecturePage() {
           {/* Secondary Sub-Tabs */}
           <div className="flex items-center gap-2 border-b border-slate-200 pb-1 overflow-x-auto">
             {[
+              { id: 'diagram', label: 'Topology Diagram (Live)', count: 'Live' },
               { id: 'stack', label: 'Tech Stack & Components', count: components.length },
               { id: 'datastores', label: 'Data Stores & Topology', count: dataStores.length },
               { id: 'adrs', label: 'Architectural Decision Records (ADRs)', count: decisions.length },
@@ -181,6 +183,48 @@ export function ArchitecturePage() {
               </button>
             ))}
           </div>
+
+          {/* Tab 0: Interactive Topology Diagram */}
+          {activeTab === 'diagram' && (
+            <div className="space-y-4">
+              <MermaidViewer
+                chart={
+                  (architecture as any)?.mermaid_diagram ||
+                  (architecture as any)?.mermaidDiagram ||
+                  `flowchart TD
+    subgraph Clients["Client Presentation Tier"]
+        Web["Web Application (React 19)"]
+        Mobile["Mobile Banking App"]
+    end
+
+    subgraph Security["Edge Security & Routing"]
+        WAF["Cloud Armor / WAF"]
+        APIGW["API Gateway / Envoy Proxy"]
+        AuthSvc["Auth & Token Engine (JWT / mTLS)"]
+    end
+
+    subgraph CoreServices["Domain Microservices"]
+        ${components.map((c, i) => `S${i}["${c.name}\\n(${c.technology})"]`).join('\n        ') || 'Core["Retail Banking Engine"]'}
+    end
+
+    subgraph DataTier["Data & Event Fabric"]
+        ${dataStores.map((d, i) => `DB${i}[("${d.type || 'DataStore'}\\n${d.technology}")]`).join('\n        ') || 'DB[("Cloud SQL PostgreSQL 16")]'}
+        Cache[("Redis Distributed Cache")]
+        EventBus["Kafka Event Streaming Backbone"]
+    end
+
+    Web --> WAF
+    Mobile --> WAF
+    WAF --> APIGW
+    APIGW --> AuthSvc
+    APIGW --> CoreServices
+    CoreServices --> DataTier
+`
+                }
+                title={`${architecture?.pattern || 'Software'} Architecture Topology`}
+              />
+            </div>
+          )}
 
           {/* Tab 1: Components & Stack */}
           {activeTab === 'stack' && (

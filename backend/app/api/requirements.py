@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.api.deps import CurrentUser, DbSession, get_client_ip, verify_project_access
 from app.core.audit import record_audit_log
@@ -48,22 +48,42 @@ async def upload_requirements(
             detail="No requirement statements were found in the uploaded document.",
         )
     settings = get_settings()
+
+    # Query existing requirements for this project to support idempotent re-upload
+    existing_stmt = select(Requirement).where(Requirement.project_id == project_id)
+    existing_res = await session.execute(existing_stmt)
+    existing_map = {r.requirement_key: r for r in existing_res.scalars().all()}
+
     requirements: list[Requirement] = []
     chunks: list[RequirementChunk] = []
     chunk_texts: list[str] = []
     for item in extracted:
-        requirement = Requirement(
-            project_id=project_id,
-            requirement_key=item.requirement_key,
-            title=item.title,
-            description=item.description,
-            category=item.category,
-            priority=item.priority,
-            source_document=Path(document.filename).name,
-            source_location={"page_count": document.page_count},
-            embedding_metadata={"model": settings.embedding_model, "dimensions": settings.embedding_dimensions},
-            created_by=current_user.id,
-        )
+        if item.requirement_key in existing_map:
+            requirement = existing_map[item.requirement_key]
+            requirement.title = item.title
+            requirement.description = item.description
+            requirement.category = item.category
+            requirement.priority = item.priority
+            requirement.source_document = Path(document.filename).name
+            requirement.source_location = {"page_count": document.page_count}
+            requirement.embedding_metadata = {"model": settings.embedding_model, "dimensions": settings.embedding_dimensions}
+            await session.execute(
+                delete(RequirementChunk).where(RequirementChunk.requirement_id == requirement.id)
+            )
+        else:
+            requirement = Requirement(
+                project_id=project_id,
+                requirement_key=item.requirement_key,
+                title=item.title,
+                description=item.description,
+                category=item.category,
+                priority=item.priority,
+                source_document=Path(document.filename).name,
+                source_location={"page_count": document.page_count},
+                embedding_metadata={"model": settings.embedding_model, "dimensions": settings.embedding_dimensions},
+                created_by=current_user.id,
+            )
+            session.add(requirement)
         requirements.append(requirement)
         for chunk in chunk_text(item.description):
             record = RequirementChunk(
@@ -84,7 +104,7 @@ async def upload_requirements(
     embeddings_generated = bool(chunk_texts and vectors and vectors[0])
     for chunk, vector in zip(chunks, vectors):
         chunk.embedding = vector or None
-    session.add_all(requirements)
+    session.add_all(chunks)
     await record_audit_log(
         session=session,
         action="REQUIREMENTS_INGESTED",

@@ -7,7 +7,7 @@ import {
   LayoutDashboard, FolderOpen, FileText, Layers, Calendar,
   Code2, BarChart3, BookOpen, Users, Shield, Settings2,
   ChevronLeft, ChevronRight, Sparkles, LogOut, Settings,
-  Moon,
+  Moon, GitBranch, Download,
 } from 'lucide-react';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { Avatar } from '@/components/ui/Misc';
@@ -19,6 +19,7 @@ import { Avatar } from '@/components/ui/Misc';
 const ICONS: Record<string, React.ElementType> = {
   LayoutDashboard, FolderOpen, FileText, Layers, Calendar,
   Code2, BarChart3, BookOpen, Users, Shield, Settings2,
+  GitBranch, Download, Sparkles,
 };
 
 interface SidebarNavItemProps {
@@ -72,6 +73,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     { icon: 'FileText', label: 'Requirements', path: `/projects/${activeProjectId}/requirements` },
     { icon: 'Layers', label: 'Artifacts', path: `/projects/${activeProjectId}/artifacts` },
     { icon: 'Calendar', label: 'Sprints', path: `/projects/${activeProjectId}/sprints` },
+    { icon: 'GitBranch', label: 'Traceability', path: `/projects/${activeProjectId}/traceability` },
+    { icon: 'Download', label: 'Export Hub', path: `/projects/${activeProjectId}/export` },
     { icon: 'BarChart3', label: 'Evaluations', path: `/projects/${activeProjectId}/evaluations` },
     { icon: 'Sparkles', label: 'AI Assistant', path: `/projects/${activeProjectId}/assistant` },
   ];

@@ -22,6 +22,7 @@ export function RequirementsPage() {
     requirements,
     documents,
     uploadDocument,
+    uploadRequirementsFile,
     extractRequirementsFromDoc,
     updateRequirementStatus,
     updateRequirement,
@@ -59,9 +60,17 @@ export function RequirementsPage() {
     if (!file) return;
     setUploading(true);
     try {
+      if (uploadRequirementsFile) {
+        await uploadRequirementsFile(file, projectId || 'proj-001');
+      } else {
+        await uploadDocument({ name: file.name, size: file.size, type: file.type }, projectId || 'proj-001');
+      }
+    } catch {
+      // Fallback
       await uploadDocument({ name: file.name, size: file.size, type: file.type }, projectId || 'proj-001');
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 

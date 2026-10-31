@@ -19,6 +19,8 @@ import { ArtifactsHubPage } from '@/features/artifacts/ArtifactsHubPage';
 import { SprintPlanningPage } from '@/features/sprints/SprintPlanningPage';
 import { EvaluationsPage } from '@/features/evaluations/EvaluationsPage';
 import { AssistantPage } from '@/features/assistant/AssistantPage';
+import { TraceabilityPage } from '@/features/traceability/TraceabilityPage';
+import { ExportHubPage } from '@/features/export/ExportHubPage';
 import { PromptLibraryPage } from '@/features/prompts/PromptLibraryPage';
 import { PromptDetailPage } from '@/features/prompts/PromptDetailPage';
 import { CaseStudyPage } from '@/features/case-study/CaseStudyPage';
@@ -72,6 +74,8 @@ export function AppRoutes() {
           <Route path="requirements" element={<RequirementsPage />} />
           <Route path="artifacts" element={<ArtifactsHubPage />} />
           <Route path="sprints" element={<SprintPlanningPage />} />
+          <Route path="traceability" element={<TraceabilityPage />} />
+          <Route path="export" element={<ExportHubPage />} />
           <Route path="evaluations" element={<EvaluationsPage />} />
           <Route path="assistant" element={<AssistantPage />} />
         </Route>

@@ -146,10 +146,13 @@ async def embed_texts(
     if not values:
         return []
     settings = get_settings()
+    if settings.embedding_provider == "mock":
+        dimensions = settings.embedding_dimensions
+        return [[0.0] * dimensions for _ in values]
     if settings.embedding_provider == "api":
         return await _embed_api(values, prompt_name)
     if settings.embedding_provider == "gemma":
         return await asyncio.to_thread(_encode_local, values, prompt_name)
     raise EmbeddingProviderError(
-        "DEVPILOT_EMBEDDING_PROVIDER must be either 'api' or 'gemma'."
+        "DEVPILOT_EMBEDDING_PROVIDER must be 'mock', 'api', or 'gemma'."
     )
