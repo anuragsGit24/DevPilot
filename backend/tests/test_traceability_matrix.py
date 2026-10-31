@@ -1,4 +1,7 @@
 """Unit tests for the pure traceability matrix engine (Engineer 4)."""
+import uuid
+from types import SimpleNamespace
+
 import pytest
 
 from app.traceability.matrix import (
@@ -12,6 +15,7 @@ from app.traceability.matrix import (
     extract_endpoint_links,
     extract_story_links,
     extract_test_links,
+    matrix_from_artifact_rows,
 )
 
 
@@ -271,3 +275,68 @@ def test_duplicates_and_self_links_deduped():
 
     by_req = {item.requirement_key: item for item in matrix.coverage}
     assert by_req["REQ-001"].covered_by["user_story"] == ["US-001"]
+
+
+def test_legacy_artifact_scope_recovers_single_requirement_links():
+    req_id = uuid.uuid4()
+    requirement = SimpleNamespace(
+        id=req_id,
+        requirement_key="REQ-001",
+        title="Customer registration",
+        description="",
+        source_document=None,
+        source_location=None,
+    )
+    versions = [
+        SimpleNamespace(
+            version_number=1,
+            source_requirement_ids=[str(req_id)],
+            payload={"acceptance_criteria": [{"criteria_key": "AC-001"}]},
+            artifact=SimpleNamespace(
+                id=uuid.uuid4(), artifact_type="acceptance_criteria", title="Criteria"
+            ),
+        ),
+        SimpleNamespace(
+            version_number=1,
+            source_requirement_ids=[str(req_id)],
+            payload={"test_cases": [{"test_key": "TC-001"}]},
+            artifact=SimpleNamespace(
+                id=uuid.uuid4(), artifact_type="test_cases", title="Tests"
+            ),
+        ),
+    ]
+
+    matrix, _ = matrix_from_artifact_rows([requirement], versions)
+
+    coverage = matrix.coverage[0]
+    assert coverage.covered_by["acceptance_criteria"] == ["AC-001"]
+    assert coverage.covered_by["test_case"] == ["TC-001"]
+    assert coverage.score == pytest.approx(0.5)
+    assert coverage.fully_covered is False
+
+
+def test_legacy_multi_requirement_artifact_does_not_guess_item_links():
+    first_id, second_id = uuid.uuid4(), uuid.uuid4()
+    requirements = [
+        SimpleNamespace(
+            id=req_id,
+            requirement_key=f"REQ-00{index}",
+            title="Requirement",
+            description="",
+            source_document=None,
+            source_location=None,
+        )
+        for index, req_id in enumerate((first_id, second_id), 1)
+    ]
+    version = SimpleNamespace(
+        version_number=1,
+        source_requirement_ids=[str(first_id), str(second_id)],
+        payload={"test_cases": [{"test_key": "TC-001"}]},
+        artifact=SimpleNamespace(
+            id=uuid.uuid4(), artifact_type="test_cases", title="Tests"
+        ),
+    )
+
+    matrix, _ = matrix_from_artifact_rows(requirements, [version])
+
+    assert all("test_case" not in row.covered_by for row in matrix.coverage)

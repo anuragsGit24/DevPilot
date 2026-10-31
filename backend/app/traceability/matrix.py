@@ -286,6 +286,55 @@ def matrix_from_artifact_rows(
     project serialized rows) and builds the matrix. Version lines dedupe to latest.
     """
     computed_at = computed_at or datetime.now(UTC)
+    requirement_dicts = [
+        {
+            "requirement_key": requirement.requirement_key,
+            "title": requirement.title,
+            "description": requirement.description,
+            "source_document": requirement.source_document,
+            "source_location": requirement.source_location,
+            "id": str(requirement.id),
+        }
+        for requirement in requirements
+    ]
+    requirement_key_by_id = {
+        req["id"]: req["requirement_key"] for req in requirement_dicts
+    }
+
+    def add_legacy_single_requirement_links(payload: dict, artifact_type: str, source_ids: Any) -> dict:
+        """Recover unambiguous links from artifact-level metadata on old versions.
+
+        Older generated artifacts may have ``source_requirement_ids`` recorded
+        while omitting item-level requirement keys. Only infer links when the
+        whole artifact was scoped to exactly one known requirement; assigning a
+        multi-requirement artifact's entire scope to every item would overstate
+        coverage.
+        """
+        if not isinstance(source_ids, list) or len(source_ids) != 1:
+            return payload
+        req_key = requirement_key_by_id.get(str(source_ids[0]))
+        if not req_key:
+            return payload
+
+        payload = dict(payload)
+        collection_key = {
+            "user_stories": "stories",
+            "acceptance_criteria": "acceptance_criteria",
+            "test_cases": "test_cases",
+        }.get(artifact_type)
+        if collection_key:
+            items = payload.get(collection_key)
+            if isinstance(items, list):
+                payload[collection_key] = [
+                    ({**item, "source_requirement_keys": [req_key]}
+                     if isinstance(item, dict) and not item.get("source_requirement_keys")
+                     else item)
+                    for item in items
+                ]
+        elif artifact_type == "api_specification" and not payload.get("x-source-requirement-keys"):
+            payload["x-source-requirement-keys"] = [req_key]
+        return payload
+
     picks: dict[str, dict] = {}
     for version in sorted(artifact_versions, key=lambda v: v.version_number):
         artifact = version.artifact
@@ -295,18 +344,12 @@ def matrix_from_artifact_rows(
             "artifact_type": artifact_type,
             "title": artifact.title,
             "version_number": version.version_number,
-            "payload": version.payload if isinstance(version.payload, dict) else {},
+            "payload": add_legacy_single_requirement_links(
+                version.payload if isinstance(version.payload, dict) else {},
+                artifact_type,
+                version.source_requirement_ids,
+            ),
         }
-    requirement_dicts = [
-        {
-            "requirement_key": requirement.requirement_key,
-            "title": requirement.title,
-            "description": requirement.description,
-            "source_document": requirement.source_document,
-            "source_location": requirement.source_location,
-        }
-        for requirement in requirements
-    ]
     matrix = build_matrix(requirement_dicts, list(picks.values()))
     version_numbers = {
         entry["artifact_id"]: entry["version_number"] for entry in picks.values()
