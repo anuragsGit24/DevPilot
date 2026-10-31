@@ -3,6 +3,7 @@ Structured output Pydantic schemas for AI-generated SDLC artifacts.
 Enforces type safety, JSON schema consistency, and eliminates hallucinations.
 """
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -42,7 +43,8 @@ class GeneratedAcceptanceCriteria(BaseModel):
     given: str = Field(description="Preconditions / initial context")
     when: str = Field(description="Trigger action / event")
     then: str = Field(description="Expected outcome / assertions")
-    source_requirement_keys: list[str] = Field(default_factory=list)
+    # Required so generated criteria cannot silently become untraceable.
+    source_requirement_keys: list[str]
 
 
 class AcceptanceCriteriaPayload(BaseModel):
@@ -60,7 +62,8 @@ class GeneratedTestCase(BaseModel):
     steps: list[str] = Field(default_factory=list)
     expected_result: str
     test_data: dict[str, Any] = Field(default_factory=dict)
-    source_requirement_keys: list[str] = Field(default_factory=list)
+    # Required so generated tests cannot silently become untraceable.
+    source_requirement_keys: list[str]
 
 
 class TestCasesPayload(BaseModel):

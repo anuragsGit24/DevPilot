@@ -55,11 +55,7 @@ function buildBreadcrumbs(
   return crumbs;
 }
 
-interface TopbarProps {
-  sidebarCollapsed: boolean;
-}
-
-export function Topbar({ sidebarCollapsed }: TopbarProps) {
+export function Topbar() {
   const { user, isDemoMode } = useAuth();
   const { projects } = useProjectData();
   const { theme, toggleTheme } = useTheme();
@@ -72,7 +68,6 @@ export function Topbar({ sidebarCollapsed }: TopbarProps) {
   const crumbs = buildBreadcrumbs(location.pathname, params.projectId, projects);
   const notifications = [
     { id: 1, title: 'Sprint 2 velocity warning', desc: 'Allocation exceeds capacity by 13 pts', time: '5m ago', unread: true },
-    { id: 2, title: 'Evaluation run complete', desc: 'User Stories eval scored 74%', time: '1h ago', unread: true },
     { id: 3, title: 'REQ-007 flagged for review', desc: 'Possible contradiction with REQ-014', time: '3h ago', unread: false },
   ];
   const unreadCount = notifications.filter((n) => n.unread).length;

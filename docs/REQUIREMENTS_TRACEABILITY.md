@@ -34,6 +34,33 @@ This is a planned map. Evidence remains pending until implementation/testing.
 | SC-14 | Complete professional documentation | Drafted; review pending |
 | SC-15 | Measured documentation-effort reduction | Pending |
 
+## Engineer 4 — Quality, Traceability & PromptOps endpoints
+
+Phase P5 (Owner: Engineer 4). These endpoints are implemented in the backend and
+covered by the test suite; they are the machine-readable evidence behind UC-08,
+UC-09 and SC-2/SC-4/SC-8/SC-9. Full request/response contracts live in
+[API_SPECIFICATION.md](API_SPECIFICATION.md).
+
+| Endpoint | Purpose | Evidence (test) |
+|---|---|---|
+| `GET /projects/{project_id}/traceability/matrix` | Build the PRD ↔ story ↔ criteria ↔ test ↔ OpenAPI matrix; report coverage and gaps | `tests/test_traceability_matrix.py` |
+| `POST /projects/{project_id}/evaluations/run` | Run completeness/groundedness/consistency rubrics and persist the result | `tests/test_evaluations_api.py`, `tests/test_rubrics.py` |
+| `GET /projects/{project_id}/evaluations` | List past evaluation runs (bounded `limit`/`offset`) | `tests/test_evaluations_api.py` |
+| `GET /projects/{project_id}/evaluations/{evaluation_id}` | Read a saved evaluation result | `tests/test_evaluations_api.py` |
+| `GET /prompts?project_id={project_id}` | List prompts and immutable revisions | `tests/test_promptops.py` |
+| `POST /prompts/seed?project_id={project_id}` | Idempotently seed canonical prompt templates | `tests/test_promptops.py` |
+| `POST /prompts/{prompt_id}/versions` | Add a checksum-deduplicated prompt revision | `tests/test_promptops.py` |
+| `POST /prompts/{prompt_id}/versions/{version_number}/regression` | Run the deterministic prompt regression suite | `tests/test_promptops.py` |
+| `POST /prompts/{prompt_id}/versions/{version_number}/activate` | Activate a tested revision (`draft → tested → active`) | `tests/test_promptops.py` |
+| `POST /prompts/{prompt_id}/versions/{version_number}/retire` | Retire a prompt (terminal state) | `tests/test_promptops.py` |
+
+Rubric definitions (weights, thresholds and formulas) are pinned in
+`backend/app/evaluations/dimensions.py` and documented in
+[features/EVALUATION_FRAMEWORK.md](features/EVALUATION_FRAMEWORK.md). Each
+evaluation persists its dimension scores, weighted overall score, coverage
+metrics, grounding method and actionable issue records, so UC-09 evidence is
+reproducible from the stored row rather than from a design claim.
+
 ## Other traceability
 BO-1–BO-8: PRD, evaluation and prompt library. TO-1–TO-10: architecture, AI pipeline, security, DevOps, observability and final deliverables. SDLC/Agile/source-control standards: `AGILE_PLAN.md`, `ADRS.md`, `TEST_STRATEGY.md`, `SECURITY_CHECKLIST.md`, `DEVOPS_AND_CICD.md`.
 
