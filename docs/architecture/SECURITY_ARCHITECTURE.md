@@ -19,6 +19,14 @@ Use Argon2id or bcrypt; validate token signature, issuer, audience, expiry and a
 
 Use TLS in deployed environments, strict CORS, CSP and suitable security headers. Audit login, ingestion, edits, generation, approval, prompt changes, evaluation, export and admin actions. Exclude passwords, tokens, keys and unnecessary raw content from logs.
 
+## Audit events
+Every mutation and sensitive read goes through `app.core.audit.record_audit_log`, which stores the acting user, entity, optional client IP and a redacted `details` payload. Event names by domain:
+
+- **Auth/access:** `USER_REGISTERED`, `USER_PROVISIONED`, `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILED`, `AUTH_LOGIN_INACTIVE`, `AUTH_LOGIN_BLOCKED_LOCKOUT`, `AUTH_ACCOUNT_LOCKED`, `AUTH_LOGOUT`, `AUTH_PASSWORD_RESET_REQUEST`, `AUTH_PASSWORD_RESET_SUCCESS`, `USER_ROLE_CHANGED`, `USER_STATUS_TOGGLED`.
+- **Projects/requirements/work items:** `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_MEMBER_ADDED`, `REQUIREMENTS_INGESTED`, `WORK_ITEM_CREATED`, `WORK_ITEM_UPDATED`, `WORK_ITEM_DELETED`.
+- **Generation/architecture/sprints:** `ARTIFACT_GENERATED`, `ARTIFACT_CREATED`, `ARTIFACT_VERSION_CREATED`, `ARTIFACT_STATUS_UPDATED`, `ARCHITECTURE_RECOMMENDED`, `SPRINTS_PLANNED`.
+- **Quality, traceability & PromptOps (Engineer 4):** `EVALUATION_RUN`, `EVALUATION_VIEWED`, `TRACEABILITY_MATRIX_VIEWED`, `PROMPTS_SEEDED`, `PROMPT_VERSION_CREATED`, `PROMPT_REGRESSION_RUN`, `PROMPT_ACTIVATED`, `PROMPT_RETIRED`.
+
 ## Data policy
 Synthetic/public data only. Do not send real customer data, confidential banking requirements, proprietary source code or sponsor-confidential documents to model APIs. Record provider retention/training and region assumptions. The prototype is not approved for production banking use.
 
