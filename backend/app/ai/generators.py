@@ -4,11 +4,13 @@ Integrates directly with Engineer 1's Ingestion & pgvector embeddings,
 performs RAG retrieval, invokes LLM with structured prompts, and manages artifact versioning.
 """
 import uuid
+from dataclasses import dataclass
 from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.llm import default_llm_client
+from app.ai.llm import LLMError, default_llm_client
 from app.ai.schemas import (
     AcceptanceCriteriaPayload,
     OpenApiSpecPayload,
@@ -26,6 +28,7 @@ from app.models import (
     RequirementChunk,
     ReviewStatus,
     User,
+    WorkItem,
 )
 from app.prompts.templates import (
     ACCEPTANCE_CRITERIA_PROMPT,
@@ -48,28 +51,147 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
     return numerator / (left_norm * right_norm) if left_norm and right_norm else 0.0
 
 
+@dataclass
+class ResolvedRequirement:
+    """Normalized requirement view used across generation.
+
+    Requirements may originate from Engineer 1's ingested ``Requirement`` rows
+    (``/requirements/upload``) or from generic ``WorkItem`` records of
+    ``record_type == 'requirement'`` created by the workspace UI. Both are
+    flattened into this shape so prompts, traceability and persistence behave
+    identically regardless of source.
+    """
+
+    id: uuid.UUID
+    key: str
+    title: str
+    description: str
+    category: str
+    priority: str
+
+
+def _normalize_requirement(req: Requirement) -> ResolvedRequirement:
+    return ResolvedRequirement(
+        id=req.id,
+        key=req.requirement_key,
+        title=req.title,
+        description=req.description or "",
+        category=req.category.value if req.category else "functional",
+        priority=req.priority.value if req.priority else "must",
+    )
+
+
+def _normalize_work_item(item: WorkItem) -> ResolvedRequirement:
+    payload = item.payload or {}
+    key = (
+        payload.get("requirement_key")
+        or payload.get("requirementKey")
+        or payload.get("key")
+        or item.id.hex[:8].upper()
+    )
+    description = (
+        payload.get("description")
+        or payload.get("normalizedText")
+        or payload.get("normalized_text")
+        or payload.get("sourceText")
+        or payload.get("source_text")
+        or item.title
+    )
+    return ResolvedRequirement(
+        id=item.id,
+        key=str(key),
+        title=item.title,
+        description=str(description),
+        category=str(payload.get("category") or "functional"),
+        priority=str(payload.get("priority") or "must"),
+    )
+
+
+def _ensure_item_requirement_links(
+    payload: dict[str, Any], collection_key: str, requirements: list[ResolvedRequirement]
+) -> dict[str, Any]:
+    """Validate generated per-item links and safely infer a sole source.
+
+    The artifact-level requirement scope is not enough to infer item links when
+    generation covers multiple requirements. For a single-requirement request,
+    however, every generated item has an unambiguous source.
+    """
+    allowed_keys = {requirement.key for requirement in requirements}
+    items = payload.get(collection_key)
+    if not isinstance(items, list):
+        raise LLMError(f"Generated artifact is missing its {collection_key} list.")
+
+    normalized_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            normalized_items.append(item)
+            continue
+        raw_keys = item.get("source_requirement_keys") or []
+        valid_keys = (
+            list(dict.fromkeys(
+                str(key) for key in raw_keys
+                if isinstance(key, (str, int)) and str(key) in allowed_keys
+            ))
+            if isinstance(raw_keys, list)
+            else []
+        )
+        if not valid_keys:
+            if len(allowed_keys) == 1:
+                valid_keys = [next(iter(allowed_keys))]
+            else:
+                raise LLMError(
+                    f"Generated {collection_key} item has no valid source requirement link. "
+                    "Regenerate with explicit requirement links."
+                )
+        normalized_items.append({**item, "source_requirement_keys": valid_keys})
+
+    return {**payload, collection_key: normalized_items}
+
+
 async def resolve_requirements_context(
     session: AsyncSession,
     project_id: uuid.UUID,
     requirement_ids: list[uuid.UUID] | None = None,
     query: str | None = None,
     limit: int = 10,
-) -> tuple[list[Requirement], str]:
+) -> tuple[list[ResolvedRequirement], str]:
     """
     RAG Retrieval over Engineer 1's requirements and pgvector embeddings.
-    If requirement_ids are given, loads them directly.
+
+    If requirement_ids are given, loads them directly from both the ingested
+    ``Requirement`` table and ``WorkItem`` requirement records.
     If query is given, executes semantic vector similarity search.
     Otherwise loads all requirements for the project.
     """
-    requirements: list[Requirement] = []
+    requirements: list[ResolvedRequirement] = []
 
     if requirement_ids:
-        stmt = select(Requirement).where(
-            Requirement.project_id == project_id,
-            Requirement.id.in_(requirement_ids),
+        resolved_by_id: dict[uuid.UUID, ResolvedRequirement] = {}
+
+        req_res = await session.execute(
+            select(Requirement).where(
+                Requirement.project_id == project_id,
+                Requirement.id.in_(requirement_ids),
+            )
         )
-        res = await session.execute(stmt)
-        requirements = list(res.scalars().all())
+        for req in req_res.scalars().all():
+            resolved_by_id[req.id] = _normalize_requirement(req)
+
+        item_res = await session.execute(
+            select(WorkItem).where(
+                WorkItem.project_id == project_id,
+                WorkItem.record_type == "requirement",
+                WorkItem.id.in_(requirement_ids),
+            )
+        )
+        for item in item_res.scalars().all():
+            resolved_by_id[item.id] = _normalize_work_item(item)
+
+        # Preserve caller-supplied ordering and drop ids that don't resolve.
+        for rid in requirement_ids:
+            resolved = resolved_by_id.get(rid)
+            if resolved is not None:
+                requirements.append(resolved)
 
     elif query:
         # Vector semantic retrieval
@@ -99,24 +221,35 @@ async def resolve_requirements_context(
             for _, _, req in ranked:
                 if req.id not in seen_ids:
                     seen_ids.add(req.id)
-                    requirements.append(req)
+                    requirements.append(_normalize_requirement(req))
                 if len(requirements) >= limit:
                     break
 
     if not requirements:
-        # Fallback: load project requirements
+        # Fallback: load project requirements from both sources.
         res = await session.execute(
             select(Requirement).where(Requirement.project_id == project_id).limit(limit)
         )
-        requirements = list(res.scalars().all())
+        requirements = [_normalize_requirement(r) for r in res.scalars().all()]
+
+        if len(requirements) < limit:
+            remaining = limit - len(requirements)
+            item_res = await session.execute(
+                select(WorkItem)
+                .where(
+                    WorkItem.project_id == project_id,
+                    WorkItem.record_type == "requirement",
+                )
+                .limit(remaining)
+            )
+            requirements.extend(_normalize_work_item(i) for i in item_res.scalars().all())
 
     # Build structured text representation for LLM prompt
     if requirements:
         context_lines = []
         for r in requirements:
             context_lines.append(
-                f"- [{r.requirement_key}] ({r.priority.value if r.priority else 'must'}, {r.category.value if r.category else 'functional'}) "
-                f"{r.title}: {r.description}"
+                f"- [{r.key}] ({r.priority}, {r.category}) {r.title}: {r.description}"
             )
         formatted_context = "\n".join(context_lines)
     else:
@@ -204,6 +337,7 @@ class ArtifactGeneratorService:
         )
 
         payload = payload_obj.model_dump() if hasattr(payload_obj, "model_dump") else payload_obj
+        payload = _ensure_item_requirement_links(payload, "acceptance_criteria", requirements)
         artifact_title = title or f"Acceptance Criteria — {project.name}"
 
         return await cls._persist_artifact(
@@ -249,6 +383,7 @@ class ArtifactGeneratorService:
         )
 
         payload = payload_obj.model_dump() if hasattr(payload_obj, "model_dump") else payload_obj
+        payload = _ensure_item_requirement_links(payload, "test_cases", requirements)
         artifact_title = title or f"Test Case Suite — {project.name}"
 
         return await cls._persist_artifact(
@@ -316,7 +451,7 @@ class ArtifactGeneratorService:
         artifact_type: ArtifactType,
         title: str,
         payload: dict[str, Any],
-        source_requirements: list[Requirement],
+        source_requirements: list[ResolvedRequirement],
         llm_meta: Any,
         client_ip: str | None = None,
     ) -> Artifact:

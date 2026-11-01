@@ -1,6 +1,6 @@
-from typing import Any
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -476,3 +476,127 @@ class SprintPlanResponse(BaseModel):
     total_sprints: int
     total_stories_planned: int
     total_story_points: int
+
+
+# Traceability Schemas (Engineer 4)
+
+class TraceNode(BaseModel):
+    kind: str  # "requirement" | "user_story" | "acceptance_criteria" | "test_case" | "api_endpoint"
+    key: str
+    title: str | None = None
+
+
+class TraceEdge(BaseModel):
+    source_kind: str
+    source_key: str
+    target_kind: str
+    target_key: str
+    relation: str
+
+
+class TraceabilityGap(BaseModel):
+    type: str  # orphan_requirement | speculative_story | missing_story_link | unknown_requirement_reference
+    kind: str | None = None
+    key: str | None = None
+    detail: str
+
+
+class RequirementCoverage(BaseModel):
+    requirement_key: str
+    requirement_title: str | None = None
+    requirement_description: str | None = None
+    source_document: str | None = None
+    source_location: dict | None = None
+    covered_by: dict[str, list[str]]
+    fully_covered: bool
+    score: float
+
+
+class TraceabilityMatrix(BaseModel):
+    nodes: list[TraceNode]
+    edges: list[TraceEdge]
+    coverage: list[RequirementCoverage]
+    gaps: list[TraceabilityGap]
+    requirements_total: int
+    requirements_covered: int
+
+
+class TraceabilityMatrixResponse(TraceabilityMatrix):
+    project_id: uuid.UUID
+    computed_at: datetime
+    latest_version_numbers: dict[str, int]
+
+
+# Evaluation Schemas (Engineer 4)
+
+class EvaluationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    status: str
+    triggered_by: str | None = None
+    created_by: uuid.UUID
+    created_at: datetime
+    completed_at: datetime | None = None
+    artifact_stats: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    scores: dict[str, Any] = Field(default_factory=dict)
+    summary: str | None = None
+    rubric_metadata: dict[str, Any] | None = None
+
+
+# PromptOps Schemas (Engineer 4)
+
+class PromptVersionRead(BaseModel):
+    id: uuid.UUID
+    prompt_id: uuid.UUID
+    version_number: int
+    system_prompt: str
+    user_prompt: str
+    model: str | None = None
+    temperature: float | None = None
+    checksum: str
+    created_at: datetime
+
+
+class PromptRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    prompt_key: str
+    name: str
+    description: str | None = None
+    artifact_type: str
+    lifecycle_state: str
+    active_version_number: int | None = None
+    versions: list[PromptVersionRead] = Field(default_factory=list)
+
+
+class PromptVersionCreate(BaseModel):
+    system_prompt: str = Field(min_length=1)
+    user_prompt: str = Field(min_length=1)
+    model: str | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
+class PromptRegressionResult(BaseModel):
+    test_id: str
+    artifact_type: str
+    baseline_ok: bool
+    candidate_ok: bool
+    coverage_equal: bool
+    verdict: str  # pass | fail
+    detail: str | None = None
+
+
+class PromptRegressionRead(BaseModel):
+    id: uuid.UUID
+    prompt_id: uuid.UUID
+    candidate_version_number: int | None = None
+    baseline_version_number: int | None = None
+    is_pass: bool
+    results: list[PromptRegressionResult] = Field(default_factory=list)
+    run_at: datetime

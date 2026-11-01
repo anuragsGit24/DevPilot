@@ -9,8 +9,6 @@ import type {
   ApiSpecification,
   ArchitectureRecommendation,
   Sprint,
-  PromptTemplate,
-  EvaluationRun,
   CaseStudyComparison,
   ActivityEntry,
   AssistantConversation,
@@ -28,6 +26,98 @@ import { useToast } from './ToastProvider';
 import { useAuth } from './AuthProvider';
 import { api, type ApiProject, type ApiWorkItem, type ApiNormalizedStoryIn, type ApiSprintPlanResponse } from '@/lib/api';
 
+function mapAcceptanceCriteriaArtifacts(artifacts: Awaited<ReturnType<typeof api.getArtifact>>[], projectId: string): AcceptanceCriteria[] {
+  return artifacts.flatMap((artifact) => {
+    const payload = artifact.current_version?.payload;
+    const entries = payload?.acceptance_criteria;
+    if (!Array.isArray(entries)) return [];
+    return entries.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const raw = entry as Record<string, unknown>;
+      const title = String(raw.title ?? raw.criteria_key ?? 'Acceptance criterion');
+      const given = String(raw.given ?? '');
+      const when = String(raw.when ?? '');
+      const then = String(raw.then ?? '');
+      const storyKey = typeof raw.story_key === 'string' ? raw.story_key : undefined;
+      return [{
+        id: String(raw.criteria_key ?? `${artifact.id}-criteria`),
+        projectId,
+        artifactVersionId: artifact.current_version?.id,
+        storyId: storyKey,
+        userStoryId: storyKey,
+        title,
+        scenarioName: title,
+        format: 'gherkin' as const,
+        gherkin: `Feature: ${title}\n  Scenario: ${title}\n    Given ${given}\n    When ${when}\n    Then ${then}`,
+        status: (artifact.status === 'accepted' || artifact.status === 'rejected' || artifact.status === 'in_review' ? artifact.status : 'draft') as ArtifactStatus,
+        sourceRequirementIds: Array.isArray(raw.source_requirement_keys) ? raw.source_requirement_keys.map(String) : [],
+        version: artifact.current_version?.version_number ?? 1,
+        history: [],
+        promptId: '',
+        promptVersion: 1,
+        modelName: 'Generated',
+        isEdited: false,
+        createdAt: artifact.created_at,
+        updatedAt: artifact.updated_at,
+      }];
+    });
+  });
+}
+
+function mapTestCaseArtifacts(artifacts: Awaited<ReturnType<typeof api.getArtifact>>[], projectId: string): TestCase[] {
+  return artifacts.flatMap((artifact) => {
+    const payload = artifact.current_version?.payload;
+    const entries = payload?.test_cases;
+    if (!Array.isArray(entries)) return [];
+    return entries.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const raw = entry as Record<string, unknown>;
+      const categories = ['functional', 'negative', 'boundary', 'edge', 'security'] as const;
+      const category = typeof raw.category === 'string' && categories.includes(raw.category as typeof categories[number])
+        ? raw.category as typeof categories[number]
+        : 'functional';
+      const title = String(raw.title ?? raw.test_key ?? 'Test case');
+      const steps = Array.isArray(raw.steps) ? raw.steps.map((step: unknown, index: number) => ({
+        stepNumber: index + 1,
+        action: String(step),
+        expectedResult: '',
+      })) : [];
+      return [{
+        id: String(raw.test_key ?? `${artifact.id}-test`),
+        projectId,
+        artifactVersionId: artifact.current_version?.id ?? '',
+        storyId: '',
+        title,
+        category,
+        priority: typeof raw.priority === 'string' && ['critical', 'high', 'medium', 'low'].includes(raw.priority)
+          ? raw.priority as TestCase['priority']
+          : 'medium',
+        testType: category,
+        preconditions: Array.isArray(raw.preconditions) ? raw.preconditions.map(String) : [],
+        steps,
+        expectedResult: String(raw.expected_result ?? ''),
+        testData: raw.test_data == null ? undefined : JSON.stringify(raw.test_data),
+        status: (artifact.status === 'accepted' || artifact.status === 'rejected' || artifact.status === 'in_review' ? artifact.status : 'draft') as ArtifactStatus,
+        sourceRequirementIds: Array.isArray(raw.source_requirement_keys) ? raw.source_requirement_keys.map(String) : [],
+        createdAt: artifact.created_at,
+        updatedAt: artifact.updated_at,
+        automationStatus: 'manual' as const,
+        version: artifact.current_version?.version_number ?? 1,
+        history: [],
+        promptId: '',
+        promptVersion: 1,
+        modelName: 'Generated',
+        isEdited: false,
+      }];
+    });
+  });
+}
+
+async function loadGeneratedArtifacts(projectId: string, artifactType: string) {
+  const summaries = await api.listArtifacts(projectId, artifactType);
+  return Promise.all(summaries.map((artifact) => api.getArtifact(projectId, artifact.id)));
+}
+
 interface ProjectDataContextType {
   // Projects
   projects: Project[];
@@ -43,6 +133,7 @@ interface ProjectDataContextType {
 
   // Requirements
   requirements: Requirement[];
+  refreshBackendRequirements: (projectId: string) => Promise<Requirement[]>;
   updateRequirementStatus: (id: string, status: RequirementStatus) => void;
   updateRequirement: (id: string, updates: Partial<Requirement>) => void;
   addRequirement: (req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => Requirement;
@@ -56,6 +147,7 @@ interface ProjectDataContextType {
 
   // Acceptance Criteria
   acceptanceCriteria: AcceptanceCriteria[];
+  refreshGeneratedArtifacts: (projectId?: string) => Promise<void>;
   updateAcceptanceCriteria: (id: string, updates: Partial<AcceptanceCriteria>) => void;
   updateAcceptanceCriteriaStatus: (id: string, status: ArtifactStatus) => void;
   generateAcceptanceCriteria: (userStoryIds: string[]) => Promise<AcceptanceCriteria[]>;
@@ -88,16 +180,6 @@ interface ProjectDataContextType {
     explicitStories?: ApiNormalizedStoryIn[];
   }) => Promise<ApiSprintPlanResponse>;
   refreshSprints: () => Promise<Sprint[]>;
-
-  // Prompts
-  prompts: PromptTemplate[];
-  updatePrompt: (id: string, updates: Partial<PromptTemplate>) => void;
-  createPrompt: (prompt: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => PromptTemplate;
-  testPrompt: (promptId: string, variables: Record<string, string>) => Promise<string>;
-
-  // Evaluations
-  evaluationRuns: EvaluationRun[];
-  runEvaluation: (name: string, dataset: string, projectId?: string) => Promise<EvaluationRun>;
 
   // Case Study & Dashboard
   caseStudy: CaseStudyComparison | null;
@@ -190,25 +272,10 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
     api_specification: ['endpoints', 'history'],
     architecture: ['components', 'decisions', 'risks', 'alternatives', 'history'],
     sprint: ['userStoryIds'],
-    prompt: ['versions', 'variables'],
-    evaluation: ['results', 'history'],
     assistant_conversation: ['messages'],
   };
   for (const key of arrayDefaults[item.record_type] ?? []) {
     if (!Array.isArray(payload[key])) payload[key] = [];
-  }
-  if (item.record_type === 'prompt') {
-    payload.name = typeof payload.name === 'string' ? payload.name : item.title;
-    payload.description = typeof payload.description === 'string' ? payload.description : '';
-    payload.variables = Array.isArray(payload.variables) ? payload.variables : [];
-    payload.versions = Array.isArray(payload.versions) && payload.versions.length > 0
-      ? payload.versions
-      : [{
-        versionNumber: Number(payload.version ?? 1),
-        status: item.status ?? 'active',
-        variables: payload.variables,
-      }];
-    payload.activeVersion = Number(payload.activeVersion ?? payload.version ?? 1);
   }
   if (item.record_type === 'document') {
     payload.filename = typeof payload.filename === 'string' ? payload.filename : item.title;
@@ -292,16 +359,6 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
       payload.rationale = payload.rationale.replace(/Signal scores: \{[^}]+\}\.\s*/g, '');
     }
   }
-  if (item.record_type === 'evaluation') {
-    payload.name = payload.name ?? item.title;
-    payload.metrics = payload.metrics ?? {
-      accuracy: Number(payload.overallScore ?? 0),
-      completeness: Number(payload.overallScore ?? 0),
-      relevance: Number(payload.overallScore ?? 0),
-      overallScore: Number(payload.overallScore ?? 0),
-    };
-    payload.overallScore = Number(payload.overallScore ?? 0);
-  }
   return {
     ...(payload as T),
     id: typeof payload.id === 'string' ? payload.id : item.id,
@@ -349,13 +406,29 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   const [apiSpec, setApiSpec] = useState<ApiSpecification>({} as ApiSpecification);
   const [architecture, setArchitecture] = useState<ArchitectureRecommendation>({} as ArchitectureRecommendation);
   const [sprints, setSprints] = useState<Sprint[]>([]);
-  const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
-  const [evaluationRuns, setEvaluationRuns] = useState<EvaluationRun[]>([]);
   const [caseStudy, setCaseStudy] = useState<CaseStudyComparison | null>(null);
   const [dashboard, setDashboard] = useState<DashboardSummary>(EMPTY_DASHBOARD);
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [assistantConversation, setAssistantConversation] = useState<AssistantConversation>(EMPTY_ASSISTANT_CONVERSATION);
   const [isProcessing, setIsProcessing] = useState<Record<string, boolean>>({});
+
+  const refreshGeneratedArtifacts = useCallback(async (projectId = activeProjectId) => {
+    if (!projectId) return;
+    const [criteriaArtifacts, testArtifacts] = await Promise.all([
+      loadGeneratedArtifacts(projectId, 'acceptance_criteria'),
+      loadGeneratedArtifacts(projectId, 'test_cases'),
+    ]);
+    const generatedCriteria = mapAcceptanceCriteriaArtifacts(criteriaArtifacts, projectId);
+    const generatedTests = mapTestCaseArtifacts(testArtifacts, projectId);
+    setAcceptanceCriteria((previous) => [
+      ...previous.filter((item) => !item.artifactVersionId),
+      ...generatedCriteria,
+    ]);
+    setTestCases((previous) => [
+      ...previous.filter((item) => !item.artifactVersionId),
+      ...generatedTests,
+    ]);
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -367,8 +440,6 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       setAcceptanceCriteria([]);
       setTestCases([]);
       setSprints([]);
-      setPrompts([]);
-      setEvaluationRuns([]);
       setCaseStudy(null);
       setDashboard(EMPTY_DASHBOARD);
       setActivities([]);
@@ -470,7 +541,35 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
         const projectItems = allItems.filter((i) => i.project_id === targetProjectId);
         setDocuments(projectItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
-        setRequirements(projectItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i)));
+        const workspaceRequirements = projectItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i));
+        if (targetProjectId) {
+          try {
+            const persistedRequirements = await api.listRequirements(targetProjectId);
+            if (!cancelled && persistedRequirements.length > 0) {
+              setRequirements(persistedRequirements.map((record) => ({
+                id: record.requirement_key,
+                apiId: record.id,
+                projectId: record.project_id,
+                title: record.title,
+                description: record.description,
+                category: (record.category ?? 'functional') as Requirement['category'],
+                priority: (record.priority ?? 'should') as Requirement['priority'],
+                status: 'extracted',
+                sourceDocumentId: record.source_document ?? undefined,
+                sourceDocumentName: record.source_document ?? undefined,
+                sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
+                createdAt: record.created_at,
+                updatedAt: record.updated_at,
+              })));
+            } else if (!cancelled) {
+              setRequirements(workspaceRequirements);
+            }
+          } catch {
+            if (!cancelled) setRequirements(workspaceRequirements);
+          }
+        } else {
+          setRequirements(workspaceRequirements);
+        }
 
         let loadedStories = projectItems.filter((i) => i.record_type === 'user_story').map((i) => mapWorkItem<UserStory>(i));
         if (loadedStories.length === 0 && targetProjectId) {
@@ -510,8 +609,27 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
           }
         }
         setUserStories(loadedStories);
-        setAcceptanceCriteria(projectItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i)));
-        setTestCases(projectItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i)));
+        const workItemCriteria = projectItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i));
+        const workItemTests = projectItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i));
+        let generatedCriteria: AcceptanceCriteria[] = [];
+        let generatedTests: TestCase[] = [];
+        try {
+          const [criteriaArtifacts, testArtifacts] = await Promise.all([
+            loadGeneratedArtifacts(targetProjectId, 'acceptance_criteria'),
+            loadGeneratedArtifacts(targetProjectId, 'test_cases'),
+          ]);
+          generatedCriteria = mapAcceptanceCriteriaArtifacts(criteriaArtifacts, targetProjectId);
+          generatedTests = mapTestCaseArtifacts(testArtifacts, targetProjectId);
+        } catch {
+          // Keep workspace-backed records visible if generated artifact loading is unavailable.
+        }
+        const mergeById = <T extends { id: string }>(existing: T[], generated: T[]) => {
+          const merged = new Map(existing.map((item) => [item.id, item]));
+          generated.forEach((item) => merged.set(item.id, item));
+          return [...merged.values()];
+        };
+        setAcceptanceCriteria(mergeById(workItemCriteria, generatedCriteria));
+        setTestCases(mergeById(workItemTests, generatedTests));
         const apiSpecifications = projectItems.filter((i) => i.record_type === 'api_specification');
         const architectures = projectItems.filter((i) => i.record_type === 'architecture');
         setApiSpec(apiSpecifications[0]
@@ -521,8 +639,6 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
           ? mapWorkItem<ArchitectureRecommendation>(architectures[0])
           : {} as ArchitectureRecommendation);
         setSprints(projectItems.filter((i) => i.record_type === 'sprint').map((i) => mapWorkItem<Sprint>(i)));
-        setPrompts(projectItems.filter((i) => i.record_type === 'prompt').map((i) => mapWorkItem<PromptTemplate>(i)));
-        setEvaluationRuns(projectItems.filter((i) => i.record_type === 'evaluation').map((i) => mapWorkItem<EvaluationRun>(i)));
       } catch (error) {
         if (!cancelled) toast({ variant: 'error', title: 'Unable to load workspace', description: (error as Error).message });
       }
@@ -541,8 +657,27 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     setApiSpec({} as ApiSpecification);
     setArchitecture({} as ArchitectureRecommendation);
     setSprints([]);
-    setPrompts([]);
-    setEvaluationRuns([]);
+  }, []);
+
+  const refreshBackendRequirements = useCallback(async (projectId: string) => {
+    const records = await api.listRequirements(projectId);
+    const mapped: Requirement[] = records.map((record) => ({
+      id: record.requirement_key,
+      apiId: record.id,
+      projectId: record.project_id,
+      title: record.title,
+      description: record.description,
+      category: (record.category ?? 'functional') as Requirement['category'],
+      priority: (record.priority ?? 'should') as Requirement['priority'],
+      status: 'extracted',
+      sourceDocumentId: record.source_document ?? undefined,
+      sourceDocumentName: record.source_document ?? undefined,
+      sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
+      createdAt: record.created_at,
+      updatedAt: record.updated_at,
+    }));
+    setRequirements(mapped);
+    return mapped;
   }, []);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? EMPTY_PROJECT;
@@ -750,12 +885,33 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       toast({ variant: 'error', title: 'No active project selected' });
       return [];
     }
+
+    // Workspace requirements carry a local id (e.g. "req-001") plus the real
+    // backend UUID in `apiId`. The generation API only accepts UUIDs, so map
+    // the local ids across before sending; unknown ids are dropped.
+    const apiIdByLocalId = new Map<string, string>();
+    for (const req of requirements) {
+      if (req.apiId) apiIdByLocalId.set(req.id, req.apiId);
+    }
+    const backendRequirementIds = Array.from(
+      new Set(
+        requirementIds
+          .map((id) => apiIdByLocalId.get(id))
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const localIdByApiId = new Map<string, string>();
+    for (const [localId, apiId] of apiIdByLocalId) {
+      if (!localIdByApiId.has(apiId)) localIdByApiId.set(apiId, localId);
+    }
+
     setIsProcessing((prev) => ({ ...prev, generateStories: true }));
     try {
       const artifact = await api.generateUserStories(activeProjectId, {
         title: 'User Stories',
-        requirement_ids: requirementIds.length > 0 ? requirementIds : undefined,
+        requirement_ids: backendRequirementIds.length > 0 ? backendRequirementIds : undefined,
       });
+      const sourceApiIds = artifact.current_version?.source_requirement_ids ?? [];
       const rawStories = (artifact.current_version?.payload as any)?.stories || [];
       const generated: UserStory[] = rawStories.map((s: any) => {
         const sid = s.story_key || s.id || generateId('us');
@@ -763,7 +919,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
           id: sid,
           projectId: activeProjectId,
           artifactVersionId: artifact.current_version?.id,
-          requirementId: s.source_requirement_keys?.[0] || requirementIds[0] || '',
+          requirementId: localIdByApiId.get(sourceApiIds[0] ?? '') || requirementIds[0] || '',
           title: s.title || `User Story ${sid}`,
           asA: s.as_a,
           userRole: s.as_a || 'User',
@@ -826,7 +982,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     } finally {
       setIsProcessing((prev) => ({ ...prev, generateStories: false }));
     }
-  }, [activeProjectId, toast]);
+  }, [activeProjectId, requirements, toast]);
 
   // Acceptance Criteria
   const updateAcceptanceCriteria = useCallback((id: string, updates: Partial<AcceptanceCriteria>) => {
@@ -845,29 +1001,32 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   const generateAcceptanceCriteria = useCallback(async (userStoryIds: string[]) => {
     setIsProcessing((prev) => ({ ...prev, generateCriteria: true }));
-    await sleep(1400);
-    const newItems: AcceptanceCriteria[] = userStoryIds.map((storyId) => ({
-      id: generateId('ac'),
-      projectId: activeProjectId,
-      userStoryId: storyId,
-      scenarioName: 'Biometric Authenticator Hardware Sensor Match',
-      gherkin: `Feature: Biometric Match Verification\n  Scenario: Customer presents registered biometric\n    Given the customer has FaceID configured on an iOS device\n    When the customer initiates app login and scans their face\n    Then biometric verification succeeds in under 300ms\n    And a signed cryptographic assertion is transmitted to the API`,
-      status: 'draft',
-      version: 1,
-      history: [],
-      promptId: 'pmt-002',
-      promptVersion: 1,
-      modelName: 'claude-3-5-sonnet-20241022 (Simulated)',
-      isEdited: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }));
-    setAcceptanceCriteria((prev) => [...newItems, ...prev]);
-    newItems.forEach((item) => persistItem('acceptance_criteria', item));
-    setIsProcessing((prev) => ({ ...prev, generateCriteria: false }));
-    toast({ variant: 'success', title: 'Generated Gherkin Criteria', description: `Generated ${newItems.length} acceptance criteria.` });
-    return newItems;
-  }, [activeProjectId, persistItem, toast]);
+    try {
+      const requirementKeys = [...new Set(userStories
+        .filter((story) => userStoryIds.includes(story.id))
+        .flatMap((story) => story.sourceRequirementIds ?? []))];
+      const requirementIds = requirementKeys
+        .map((key) => requirements.find((requirement) => requirement.id === key)?.apiId)
+        .filter((id): id is string => Boolean(id));
+      if (!activeProjectId || !requirementIds.length) {
+        throw new Error('Select a user story linked to an ingested requirement before generating acceptance criteria.');
+      }
+
+      const artifact = await api.generateAcceptanceCriteria(activeProjectId, {
+        title: `Acceptance Criteria — ${activeProject.name}`,
+        requirement_ids: [...new Set(requirementIds)],
+      });
+      const generated = mapAcceptanceCriteriaArtifacts([artifact], activeProjectId);
+      await refreshGeneratedArtifacts(activeProjectId);
+      toast({ variant: 'success', title: 'Acceptance criteria generated', description: `Saved ${generated.length} criteria to this project.` });
+      return generated;
+    } catch (error) {
+      toast({ variant: 'error', title: 'Acceptance criteria generation failed', description: error instanceof Error ? error.message : 'Unable to generate acceptance criteria.' });
+      return [];
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, generateCriteria: false }));
+    }
+  }, [activeProject.name, activeProjectId, refreshGeneratedArtifacts, requirements, toast, userStories]);
 
   // Test Cases
   const updateTestCase = useCallback((id: string, updates: Partial<TestCase>) => {
@@ -886,43 +1045,32 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   const generateTestCases = useCallback(async (criteriaIds: string[]) => {
     setIsProcessing((prev) => ({ ...prev, generateTests: true }));
-    await sleep(1500);
-    const newTests: TestCase[] = criteriaIds.map((cId) => ({
-      id: generateId('tc'),
-      projectId: activeProjectId,
-      artifactVersionId: 'av-003',
-      storyId: 'us-001',
-      criteriaId: cId,
-      acceptanceCriteriaId: cId,
-      userStoryId: 'us-001',
-      title: `Automated Sensor Test for ${cId}`,
-      category: 'functional',
-      priority: 'medium',
-      testType: 'integration',
-      preconditions: ['Mobile app installed on biometric test harness device', 'Valid test account enrolled'],
-      steps: [
-        { stepNumber: 1, action: 'Launch app and trigger biometric dialog', expectedResult: 'Sensor activates without prompt lag' },
-        { stepNumber: 2, action: 'Inject positive biometric match payload', expectedResult: 'Token generated within 300ms' },
-      ],
-      expectedResult: 'HTTP 200 OK with bearer token and claims matching authenticated customer profile',
-      status: 'draft',
-      sourceRequirementIds: [],
-      automationStatus: 'automated',
-      version: 1,
-      history: [],
-      promptId: 'pmt-003',
-      promptVersion: 1,
-      modelName: 'claude-3-5-sonnet-20241022 (Simulated)',
-      isEdited: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }));
-    setTestCases((prev) => [...newTests, ...prev]);
-    newTests.forEach((item) => persistItem('test_case', item));
-    setIsProcessing((prev) => ({ ...prev, generateTests: false }));
-    toast({ variant: 'success', title: 'Test Cases Generated', description: `Created ${newTests.length} executable test cases.` });
-    return newTests;
-  }, [activeProjectId, persistItem, toast]);
+    try {
+      const requirementKeys = [...new Set(acceptanceCriteria
+        .filter((criteria) => criteriaIds.includes(criteria.id))
+        .flatMap((criteria) => criteria.sourceRequirementIds ?? []))];
+      const requirementIds = requirementKeys
+        .map((key) => requirements.find((requirement) => requirement.id === key)?.apiId)
+        .filter((id): id is string => Boolean(id));
+      if (!activeProjectId || !requirementIds.length) {
+        throw new Error('Select acceptance criteria linked to an ingested requirement before generating test cases.');
+      }
+
+      const artifact = await api.generateTestCases(activeProjectId, {
+        title: `Test Cases — ${activeProject.name}`,
+        requirement_ids: [...new Set(requirementIds)],
+      });
+      const generated = mapTestCaseArtifacts([artifact], activeProjectId);
+      await refreshGeneratedArtifacts(activeProjectId);
+      toast({ variant: 'success', title: 'Test cases generated', description: `Saved ${generated.length} test cases to this project.` });
+      return generated;
+    } catch (error) {
+      toast({ variant: 'error', title: 'Test case generation failed', description: error instanceof Error ? error.message : 'Unable to generate test cases.' });
+      return [];
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, generateTests: false }));
+    }
+  }, [acceptanceCriteria, activeProject.name, activeProjectId, refreshGeneratedArtifacts, requirements, toast]);
 
   // API Spec
   const updateApiSpec = useCallback((spec: ApiSpecification) => {
@@ -1218,72 +1366,6 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     }
   }, [activeProjectId, toast]);
 
-  // Prompts
-  const updatePrompt = useCallback((id: string, updates: Partial<PromptTemplate>) => {
-    setPrompts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)));
-    toast({ variant: 'info', title: 'Prompt template saved' });
-  }, [toast]);
-
-  const createPrompt = useCallback((promptData: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newP: PromptTemplate = {
-      ...promptData,
-      id: generateId('pmt'),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setPrompts((prev) => [...prev, newP]);
-    toast({ variant: 'success', title: 'Prompt created', description: newP.name });
-    return newP;
-  }, [toast]);
-
-  const testPrompt = useCallback(async (promptId: string, variables: Record<string, string>) => {
-    void promptId;
-    void variables;
-    await sleep(1000);
-    return JSON.stringify(
-      {
-        simulatedOutput: 'Generated artifact based on prompt variables',
-        status: 'success',
-        tokenUsage: { input: 450, output: 280 },
-        latencyMs: 980,
-      },
-      null,
-      2,
-    );
-  }, []);
-
-  // Evaluations
-  const runEvaluation = useCallback(async (name: string, dataset: string, projectId = activeProjectId) => {
-    setIsProcessing((prev) => ({ ...prev, runEval: true }));
-    await sleep(2000);
-    const newRun: EvaluationRun = {
-      id: generateId('eval'),
-      projectId,
-      name,
-      description: `Automated test run against ${dataset}`,
-      artifactType: 'user_stories',
-      promptId: 'pmt-001',
-      datasetName: dataset,
-      modelName: 'claude-3-5-sonnet-20241022',
-      metrics: {
-        accuracy: 76.5,
-        relevance: 82.0,
-        completeness: 79.0,
-        hallucinationRate: 4.2,
-        overallScore: 78.4,
-      },
-      totalItems: 50,
-      passedItems: 42,
-      failedItems: 8,
-      runDate: new Date().toISOString(),
-      latencyMs: 1420,
-    };
-    setEvaluationRuns((prev) => [newRun, ...prev]);
-    setIsProcessing((prev) => ({ ...prev, runEval: false }));
-    toast({ variant: 'success', title: 'Evaluation Completed', description: `Overall score: ${newRun.metrics.overallScore}%` });
-    return newRun;
-  }, [activeProjectId, toast]);
-
   // Assistant
   const sendAssistantMessage = useCallback(async (text: string) => {
     const userMsg: ChatMessage = {
@@ -1334,6 +1416,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         uploadDocument,
         deleteDocument,
         requirements,
+        refreshBackendRequirements,
         updateRequirementStatus,
         updateRequirement,
         addRequirement,
@@ -1343,6 +1426,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         updateUserStoryStatus,
         generateUserStories,
         acceptanceCriteria,
+        refreshGeneratedArtifacts,
         updateAcceptanceCriteria,
         updateAcceptanceCriteriaStatus,
         generateAcceptanceCriteria,
@@ -1363,12 +1447,6 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         assignStoryToSprint,
         planSprints,
         refreshSprints,
-        prompts,
-        updatePrompt,
-        createPrompt,
-        testPrompt,
-        evaluationRuns,
-        runEvaluation,
         caseStudy,
         dashboard,
         activities,

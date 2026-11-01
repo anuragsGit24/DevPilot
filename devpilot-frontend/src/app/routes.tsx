@@ -18,6 +18,7 @@ import { RequirementsPage } from '@/features/requirements/RequirementsPage';
 import { ArtifactsHubPage } from '@/features/artifacts/ArtifactsHubPage';
 import { SprintPlanningPage } from '@/features/sprints/SprintPlanningPage';
 import { EvaluationsPage } from '@/features/evaluations/EvaluationsPage';
+import { TraceabilityPage } from '@/features/evaluations/TraceabilityPage';
 import { AssistantPage } from '@/features/assistant/AssistantPage';
 import { PromptLibraryPage } from '@/features/prompts/PromptLibraryPage';
 import { PromptDetailPage } from '@/features/prompts/PromptDetailPage';
@@ -73,6 +74,7 @@ export function AppRoutes() {
           <Route path="artifacts" element={<ArtifactsHubPage />} />
           <Route path="sprints" element={<SprintPlanningPage />} />
           <Route path="evaluations" element={<EvaluationsPage />} />
+          <Route path="traceability" element={<TraceabilityPage />} />
           <Route path="assistant" element={<AssistantPage />} />
         </Route>
 
