@@ -1,41 +1,20 @@
-"""Traceability Matrix API Router.
-
-Bi-directional linking between PRD Requirements, User Stories,
-Acceptance Criteria, Test Cases, and OpenAPI Endpoints.
-"""
-
+"""Traceability matrix REST endpoints (Engineer 4 & Engineer 5, UC-08)."""
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, verify_project_access
+from app.api.deps import CurrentUser, DbSession, get_client_ip, verify_project_access
+from app.core.audit import record_audit_log
 from app.models import Artifact, ArtifactVersion, Requirement, WorkItem
+from app.schemas import TraceabilityLink, TraceabilityMatrixResponse
+from app.traceability.matrix import matrix_from_artifact_rows
 
 router = APIRouter(prefix="/projects/{project_id}/traceability", tags=["traceability"])
-
-
-class TraceabilityLink(BaseModel):
-    requirement_id: str
-    requirement_title: str
-    story_ids: list[str] = Field(default_factory=list)
-    criteria_ids: list[str] = Field(default_factory=list)
-    test_case_ids: list[str] = Field(default_factory=list)
-    spec_endpoints: list[str] = Field(default_factory=list)
-    coverage_score: float = 0.0
-
-
-class TraceabilityMatrixResponse(BaseModel):
-    links: list[TraceabilityLink] = Field(default_factory=list)
-    orphaned_requirements: list[str] = Field(default_factory=list)
-    speculative_stories: list[str] = Field(default_factory=list)
-    coverage_score: float = 0.0
-    total_requirements: int = 0
-    covered_requirements: int = 0
 
 
 @router.get("/matrix", response_model=TraceabilityMatrixResponse)
@@ -45,186 +24,140 @@ async def get_traceability_matrix(
     current_user: CurrentUser,
     session: DbSession,
 ) -> TraceabilityMatrixResponse:
-    """Calculate and return bi-directional traceability graph and gap analysis."""
-    await verify_project_access(project_id, current_user, session, "artifacts:view")
+    await verify_project_access(project_id, current_user, session, "requirements:view")
 
-    # 1. Fetch requirements
-    req_stmt = (
-        select(Requirement)
-        .where(Requirement.project_id == project_id)
-        .order_by(Requirement.requirement_key.asc())
+    requirements = list(
+        (await session.execute(
+            select(Requirement)
+            .where(Requirement.project_id == project_id)
+            .order_by(Requirement.requirement_key)
+        )).scalars().all()
     )
-    req_res = await session.execute(req_stmt)
-    requirements = req_res.scalars().all()
-
-    # Fallback to work items if requirements table is empty
-    wi_req_stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.record_type == "requirement"
-    )
-    wi_req_res = await session.execute(wi_req_stmt)
-    wi_requirements = wi_req_res.scalars().all()
-
-    # 2. Fetch all user stories
-    all_stories: list[dict[str, Any]] = []
-    art_story_stmt = select(Artifact).where(
-        Artifact.project_id == project_id, Artifact.artifact_type == "user_stories"
-    )
-    art_story_res = await session.execute(art_story_stmt)
-    for art in art_story_res.scalars().all():
-        ver_stmt = (
+    versions = list(
+        (await session.execute(
             select(ArtifactVersion)
-            .where(ArtifactVersion.artifact_id == art.id)
-            .order_by(ArtifactVersion.version_number.desc())
-            .limit(1)
-        )
-        ver_res = await session.execute(ver_stmt)
-        ver = ver_res.scalar_one_or_none()
-        if ver and isinstance(ver.payload, dict):
-            all_stories.extend(ver.payload.get("stories", []))
-
-    wi_story_stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.record_type == "user_story"
+            .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+            .where(Artifact.project_id == project_id)
+            .options(selectinload(ArtifactVersion.artifact))
+            .order_by(ArtifactVersion.version_number)
+        )).scalars().all()
     )
-    wi_story_res = await session.execute(wi_story_stmt)
-    for wi in wi_story_res.scalars().all():
-        p = wi.payload or {}
-        all_stories.append({
-            "id": p.get("id", str(wi.id)),
-            "title": wi.title or p.get("title", ""),
-            "source_requirement_ids": p.get("source_requirement_ids") or p.get("sourceRequirementIds") or [],
-        })
-
-    # 3. Fetch acceptance criteria
-    all_criteria: list[dict[str, Any]] = []
-    wi_ac_stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.record_type == "acceptance_criteria"
-    )
-    wi_ac_res = await session.execute(wi_ac_stmt)
-    for wi in wi_ac_res.scalars().all():
-        p = wi.payload or {}
-        all_criteria.append({
-            "id": p.get("id", str(wi.id)),
-            "story_id": p.get("storyId") or p.get("user_story_id") or p.get("userStoryId"),
-            "source_requirement_ids": p.get("source_requirement_ids") or p.get("sourceRequirementIds") or [],
-        })
-
-    # 4. Fetch test cases
-    all_tests: list[dict[str, Any]] = []
-    wi_tc_stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.record_type == "test_case"
-    )
-    wi_tc_res = await session.execute(wi_tc_stmt)
-    for wi in wi_tc_res.scalars().all():
-        p = wi.payload or {}
-        all_tests.append({
-            "id": p.get("id", str(wi.id)),
-            "criteria_id": p.get("criteriaId") or p.get("criteria_id"),
-            "story_id": p.get("storyId") or p.get("userStoryId"),
-        })
-
-    # 5. Fetch API endpoints
-    all_endpoints: list[dict[str, Any]] = []
-    wi_api_stmt = select(WorkItem).where(
-        WorkItem.project_id == project_id, WorkItem.record_type == "api_specification"
-    )
-    wi_api_res = await session.execute(wi_api_stmt)
-    for wi in wi_api_res.scalars().all():
-        p = wi.payload or {}
-        endpoints = p.get("endpoints", [])
-        for ep in endpoints:
-            all_endpoints.append({
-                "path": f"{ep.get('method', 'GET').upper()} {ep.get('path', '')}",
-                "story_ids": ep.get("story_ids") or ep.get("storyIds") or [],
-            })
-
-    # Normalize requirement list
-    normalized_reqs: list[tuple[str, str]] = []
-    for r in requirements:
-        normalized_reqs.append((r.requirement_key, r.title))
-    if not normalized_reqs:
-        for wr in wi_requirements:
-            p = wr.payload or {}
-            normalized_reqs.append((p.get("id", str(wr.id)), wr.title or p.get("title", "")))
-
-    links: list[TraceabilityLink] = []
-    linked_story_ids: set[str] = set()
-    orphaned_reqs: list[str] = []
-
-    for req_id, req_title in normalized_reqs:
-        matching_stories = [
-            s.get("id") or s.get("story_key")
-            for s in all_stories
-            if req_id in (s.get("source_requirement_ids") or s.get("sourceRequirementIds") or [])
-            or (req_id in str(s))
-        ]
-        matching_stories = [sid for sid in matching_stories if sid]
-        for sid in matching_stories:
-            linked_story_ids.add(sid)
-
-        matching_criteria = [
-            c.get("id")
-            for c in all_criteria
-            if any(sid in str(c.get("story_id")) for sid in matching_stories)
-            or req_id in (c.get("source_requirement_ids") or [])
-        ]
-        matching_criteria = [cid for cid in matching_criteria if cid]
-
-        matching_tests = [
-            t.get("id")
-            for t in all_tests
-            if any(cid in str(t.get("criteria_id")) for cid in matching_criteria)
-            or any(sid in str(t.get("story_id")) for sid in matching_stories)
-        ]
-        matching_tests = [tid for tid in matching_tests if tid]
-
-        matching_endpoints = [
-            ep.get("path")
-            for ep in all_endpoints
-            if any(sid in ep.get("story_ids", []) for sid in matching_stories)
-        ]
-        matching_endpoints = [ep for ep in matching_endpoints if ep]
-
-        # Calculate coverage score for this requirement (up to 100%)
-        # Story (30%), AC (25%), Tests (25%), Endpoint (20%)
-        score = 0.0
-        if matching_stories:
-            score += 30.0
-        if matching_criteria:
-            score += 25.0
-        if matching_tests:
-            score += 25.0
-        if matching_endpoints:
-            score += 20.0
-
-        if not matching_stories:
-            orphaned_reqs.append(req_id)
-
-        links.append(
-            TraceabilityLink(
-                requirement_id=req_id,
-                requirement_title=req_title,
-                story_ids=matching_stories,
-                criteria_ids=matching_criteria,
-                test_case_ids=matching_tests,
-                spec_endpoints=matching_endpoints,
-                coverage_score=round(score, 1),
-            )
+    if not requirements:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No requirements ingested yet; upload requirements before generating a traceability matrix.",
         )
 
-    # Speculative stories = stories without a mapped requirement
-    all_story_ids = {s.get("id") or s.get("story_key") for s in all_stories if s.get("id") or s.get("story_key")}
-    speculative_stories = list(all_story_ids - linked_story_ids)
+    # Support WorkItem records alongside versioned artifacts
+    work_items = list(
+        (await session.execute(
+            select(WorkItem).where(WorkItem.project_id == project_id)
+        )).scalars().all()
+    )
+    if work_items:
+        existing_types = {
+            v.artifact.artifact_type.value if hasattr(v.artifact.artifact_type, "value") else str(v.artifact.artifact_type)
+            for v in versions if getattr(v, "artifact", None)
+        }
+        synthetic_versions = []
+        if "user_stories" not in existing_types:
+            stories = []
+            for wi in work_items:
+                if wi.record_type == "user_story":
+                    p = wi.payload or {}
+                    s_key = p.get("story_key") or p.get("id") or str(wi.id)
+                    req_keys = p.get("source_requirement_keys") or p.get("sourceRequirementIds") or p.get("source_requirement_ids") or []
+                    stories.append({
+                        "story_key": s_key,
+                        "title": wi.title or p.get("title", ""),
+                        "source_requirement_keys": req_keys,
+                    })
+            if stories:
+                art = type("SyntheticArtifact", (), {"id": uuid.uuid4(), "artifact_type": "user_stories", "title": "User Stories"})()
+                ver = type("SyntheticVersion", (), {"artifact": art, "version_number": 1, "payload": {"stories": stories}, "source_requirement_ids": None})()
+                synthetic_versions.append(ver)
 
-    covered_count = sum(1 for link in links if link.coverage_score >= 50.0)
-    total_reqs = len(links)
-    overall_coverage = round((covered_count / total_reqs * 100.0), 1) if total_reqs > 0 else 0.0
+        if "acceptance_criteria" not in existing_types:
+            criteria = []
+            for wi in work_items:
+                if wi.record_type == "acceptance_criteria":
+                    p = wi.payload or {}
+                    c_key = p.get("criteria_key") or p.get("id") or str(wi.id)
+                    st_key = p.get("story_key") or p.get("storyId") or p.get("user_story_id")
+                    req_keys = p.get("source_requirement_keys") or p.get("sourceRequirementIds") or p.get("source_requirement_ids") or []
+                    criteria.append({
+                        "criteria_key": c_key,
+                        "story_key": st_key,
+                        "source_requirement_keys": req_keys,
+                    })
+            if criteria:
+                art = type("SyntheticArtifact", (), {"id": uuid.uuid4(), "artifact_type": "acceptance_criteria", "title": "Acceptance Criteria"})()
+                ver = type("SyntheticVersion", (), {"artifact": art, "version_number": 1, "payload": {"acceptance_criteria": criteria}, "source_requirement_ids": None})()
+                synthetic_versions.append(ver)
+
+        if "test_cases" not in existing_types:
+            tests = []
+            for wi in work_items:
+                if wi.record_type == "test_case":
+                    p = wi.payload or {}
+                    t_key = p.get("test_key") or p.get("id") or str(wi.id)
+                    req_keys = p.get("source_requirement_keys") or p.get("sourceRequirementIds") or p.get("source_requirement_ids") or []
+                    tests.append({
+                        "test_key": t_key,
+                        "title": wi.title or p.get("title", ""),
+                        "source_requirement_keys": req_keys,
+                    })
+            if tests:
+                art = type("SyntheticArtifact", (), {"id": uuid.uuid4(), "artifact_type": "test_cases", "title": "Test Cases"})()
+                ver = type("SyntheticVersion", (), {"artifact": art, "version_number": 1, "payload": {"test_cases": tests}, "source_requirement_ids": None})()
+                synthetic_versions.append(ver)
+
+        versions = versions + synthetic_versions
+
+    matrix, version_numbers = matrix_from_artifact_rows(requirements, versions)
+
+    await record_audit_log(
+        session,
+        action="TRACEABILITY_MATRIX_VIEWED",
+        user_id=current_user.id,
+        entity_type="project",
+        entity_id=str(project_id),
+        ip_address=get_client_ip(request),
+        details={
+            "requirements": matrix.requirements_total,
+            "covered": matrix.requirements_covered,
+            "gaps": len(matrix.gaps),
+        },
+    )
+    await session.commit()
+
+    links = [
+        TraceabilityLink(
+            requirement_id=row.requirement_key,
+            requirement_title=row.requirement_title or row.requirement_key,
+            story_ids=row.covered_by.get("user_story", []),
+            criteria_ids=row.covered_by.get("acceptance_criteria", []),
+            test_case_ids=row.covered_by.get("test_case", []),
+            spec_endpoints=row.covered_by.get("api_endpoint", []),
+            coverage_score=round(row.score * 100.0, 1),
+        )
+        for row in matrix.coverage
+    ]
+    coverage_score = (
+        round((matrix.requirements_covered / matrix.requirements_total) * 100.0, 1)
+        if matrix.requirements_total
+        else 0.0
+    )
+    orphaned_reqs = [gap.key for gap in matrix.gaps if gap.type == "orphaned_requirement" and gap.key]
+    speculative_stories = [gap.key for gap in matrix.gaps if gap.type == "speculative_story" and gap.key]
 
     return TraceabilityMatrixResponse(
+        project_id=project_id,
+        computed_at=datetime.now(UTC),
+        latest_version_numbers=version_numbers,
         links=links,
+        coverage_score=coverage_score,
         orphaned_requirements=orphaned_reqs,
         speculative_stories=speculative_stories,
-        coverage_score=overall_coverage,
-        total_requirements=total_reqs,
-        covered_requirements=covered_count,
+        **matrix.model_dump(),
     )
-

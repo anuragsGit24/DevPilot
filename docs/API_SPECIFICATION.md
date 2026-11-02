@@ -33,6 +33,31 @@ Never expose stack traces, SQL, internal filesystem paths, provider keys or secr
 | POST `/projects/{id}/assistant/messages` | Contextual assistant |
 | GET `/health/live`, `/health/ready` | Liveness/readiness |
 
+### Engineer 4: evaluations, traceability, and PromptOps
+
+| Method/path | Purpose |
+|---|---|
+| GET `/projects/{project_id}/traceability/matrix` | Build a project-scoped matrix from requirements and each artifact's latest version; reports coverage and gaps |
+| POST `/projects/{project_id}/evaluations/run` | Run completeness, groundedness, and consistency rubrics; persists the result and audit event |
+| GET `/projects/{project_id}/evaluations` | List past evaluation runs (bounded `limit` and `offset`) |
+| GET `/projects/{project_id}/evaluations/{evaluation_id}` | Read a saved evaluation result |
+| GET `/prompts?project_id={project_id}` | List prompts and immutable revisions within an authorized project |
+| POST `/prompts/seed?project_id={project_id}` | Idempotently seed canonical prompt templates for that project |
+| POST `/prompts/{prompt_id}/versions` | Add a checksum-deduplicated prompt revision |
+| POST `/prompts/{prompt_id}/versions/{version_number}/regression` | Run the deterministic fixture suite; optional `baseline_version_number` query |
+| POST `/prompts/{prompt_id}/versions/{version_number}/activate` | Activate a tested prompt revision (authorized prompt manager) |
+| POST `/prompts/{prompt_id}/versions/{version_number}/retire` | Retire the prompt; terminal lifecycle state |
+
+Evaluation results include the three dimension scores, weighted overall score,
+traceability coverage, grounding method, and actionable issue records. The
+current weights are 0.35 completeness, 0.40 groundedness, and 0.25 consistency;
+these are implementation defaults and should be calibrated against the project's
+human baseline before making accuracy claims. When the embedding provider is
+unavailable, groundedness uses lexical overlap and records that fallback method.
+Prompt lifecycle transitions are `draft -> tested -> active -> retired`.
+Project data and prompt operations enforce the existing project membership and
+RBAC capabilities.
+
 ## Status codes
 200 read/update; 201 created; 202 asynchronous job if implemented; 204 no content; 400 malformed; 401 unauthenticated; 403 forbidden; 404 absent/inaccessible per anti-enumeration policy; 409 version conflict; 413 too large; 415 unsupported media; 422 validation; 429 rate limited; 502/503/504 upstream failures; 500 unexpected error.
 

@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Artifact, ArtifactVersion, Project, Requirement
+from app.models import Artifact, ArtifactVersion, Project, Requirement, WorkItem
 
 
 @pytest.mark.asyncio
@@ -72,6 +72,60 @@ async def test_generate_user_stories_with_rag_requirements(
 
 
 @pytest.mark.asyncio
+async def test_generate_user_stories_from_work_item_requirements(
+    async_client: AsyncClient, db_session: AsyncSession
+):
+    """Workspace requirements are stored as WorkItem records; the generation
+    API must accept their UUIDs and record them for traceability."""
+    reg = await async_client.post("/api/v1/auth/register", json={
+        "name": "WorkItem PM",
+        "email": "workitem.pm@devpilot.demo",
+        "password": "Password123!",
+        "role": "project_manager",
+    })
+    token = (await async_client.post("/api/v1/auth/login", json={
+        "email": "workitem.pm@devpilot.demo",
+        "password": "Password123!",
+    })).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    proj_res = await async_client.post(
+        "/api/v1/projects",
+        json={"name": "Work Item Banking", "description": "Workspace requirements"},
+        headers=headers,
+    )
+    project_id = proj_res.json()["id"]
+
+    item = WorkItem(
+        project_id=uuid.UUID(project_id),
+        record_type="requirement",
+        title="Step-up Authentication",
+        status="confirmed",
+        payload={
+            "description": "Require a one-time passcode for high-value transfers.",
+            "category": "security",
+            "priority": "must",
+        },
+        source_ids=[],
+        created_by=uuid.UUID(reg.json()["id"]),
+    )
+    db_session.add(item)
+    await db_session.commit()
+    await db_session.refresh(item)
+
+    gen_res = await async_client.post(
+        f"/api/v1/projects/{project_id}/artifacts/generate/user-stories",
+        json={"title": "Work Item Stories", "requirement_ids": [str(item.id)]},
+        headers=headers,
+    )
+    assert gen_res.status_code == 201
+    data = gen_res.json()
+    assert data["artifact_type"] == "user_stories"
+    assert data["title"] == "Work Item Stories"
+    assert str(item.id) in data["current_version"]["source_requirement_ids"]
+
+
+@pytest.mark.asyncio
 async def test_generate_acceptance_criteria_and_test_cases(
     async_client: AsyncClient, db_session: AsyncSession
 ):
@@ -121,6 +175,10 @@ async def test_generate_acceptance_criteria_and_test_cases(
     ac_payload = ac_data["current_version"]["payload"]
     assert "acceptance_criteria" in ac_payload
     assert len(ac_payload["acceptance_criteria"]) >= 2
+    assert all(
+        "REQ-201" in item["source_requirement_keys"]
+        for item in ac_payload["acceptance_criteria"]
+    )
 
     # Generate Test Cases
     tc_res = await async_client.post(
@@ -133,6 +191,10 @@ async def test_generate_acceptance_criteria_and_test_cases(
     assert tc_data["artifact_type"] == "test_cases"
     tc_payload = tc_data["current_version"]["payload"]
     assert "test_cases" in tc_payload
+    assert all(
+        "REQ-201" in item["source_requirement_keys"]
+        for item in tc_payload["test_cases"]
+    )
 
 
 @pytest.mark.asyncio

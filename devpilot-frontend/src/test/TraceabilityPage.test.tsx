@@ -43,6 +43,15 @@ describe('TraceabilityPage (Engineer 5)', () => {
 
   it('renders traceability matrix table, metrics, and requirement links', async () => {
     vi.mocked(api.getTraceabilityMatrix).mockResolvedValue({
+      project_id: 'proj-001',
+      computed_at: new Date().toISOString(),
+      latest_version_numbers: {},
+      nodes: [],
+      edges: [],
+      coverage: [],
+      gaps: [],
+      requirements_total: 1,
+      requirements_covered: 1,
       links: [
         {
           requirement_id: 'REQ-001',
@@ -81,6 +90,15 @@ describe('TraceabilityPage (Engineer 5)', () => {
 
   it('supports search filtering across requirement and story IDs', async () => {
     vi.mocked(api.getTraceabilityMatrix).mockResolvedValue({
+      project_id: 'proj-001',
+      computed_at: new Date().toISOString(),
+      latest_version_numbers: {},
+      nodes: [],
+      edges: [],
+      coverage: [],
+      gaps: [],
+      requirements_total: 2,
+      requirements_covered: 1,
       links: [
         {
           requirement_id: 'REQ-001',

@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { NavLink, useLocation, useParams } from 'react-router-dom';
+import React from 'react';
+import { NavLink, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
 import {
   LayoutDashboard, FolderOpen, FileText, Layers, Calendar,
-  Code2, BarChart3, BookOpen, Users, Shield, Settings2,
+  Code2, BarChart3, BookOpen, Users, Shield, Settings2, GitBranch,
   ChevronLeft, ChevronRight, Sparkles, LogOut, Settings,
-  Moon, GitBranch, Download,
+  Moon, Download,
 } from 'lucide-react';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { Avatar } from '@/components/ui/Misc';
@@ -61,7 +61,6 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, logout } = useAuth();
   const { projects } = useProjectData();
-  const location = useLocation();
   const params = useParams();
 
   // Determine active project for contextual nav

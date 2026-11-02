@@ -113,12 +113,21 @@ export function TraceabilityPage() {
     const speculative = userStories.filter((s) => !mappedStoryIds.has(s.id)).map((s) => s.id);
 
     return {
+      project_id: effectiveProjectId,
+      computed_at: new Date().toISOString(),
+      latest_version_numbers: {},
+      nodes: [],
+      edges: [],
+      coverage: [],
+      gaps: [],
+      requirements_total: requirements.length,
+      requirements_covered: coveredReqs,
       links,
       orphaned_requirements: orphaned,
       speculative_stories: speculative,
       coverage_score: overallCoverage,
     };
-  }, [requirements, userStories, acceptanceCriteria, testCases, apiSpec]);
+  }, [effectiveProjectId, requirements, userStories, acceptanceCriteria, testCases, apiSpec]);
 
   const loadMatrix = async () => {
     setLoading(true);
@@ -243,11 +252,11 @@ export function TraceabilityPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Orphaned Requirements</p>
-              <p className={`text-2xl font-bold mt-1 ${activeMatrix.orphaned_requirements.length > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
-                {activeMatrix.orphaned_requirements.length}
+              <p className={`text-2xl font-bold mt-1 ${(activeMatrix.orphaned_requirements?.length ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                {activeMatrix.orphaned_requirements?.length ?? 0}
               </p>
               <p className="text-2xs text-slate-500 mt-0.5">
-                {activeMatrix.orphaned_requirements.length === 0 ? 'Zero gaps detected' : 'Missing user story coverage'}
+                {(activeMatrix.orphaned_requirements?.length ?? 0) === 0 ? 'Zero gaps detected' : 'Missing user story coverage'}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
@@ -260,11 +269,11 @@ export function TraceabilityPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Speculative Stories</p>
-              <p className={`text-2xl font-bold mt-1 ${activeMatrix.speculative_stories.length > 0 ? 'text-purple-600' : 'text-slate-900'}`}>
-                {activeMatrix.speculative_stories.length}
+              <p className={`text-2xl font-bold mt-1 ${(activeMatrix.speculative_stories?.length ?? 0) > 0 ? 'text-purple-600' : 'text-slate-900'}`}>
+                {activeMatrix.speculative_stories?.length ?? 0}
               </p>
               <p className="text-2xs text-slate-500 mt-0.5">
-                {activeMatrix.speculative_stories.length === 0 ? 'All stories linked to PRD' : 'Stories with unmapped source'}
+                {(activeMatrix.speculative_stories?.length ?? 0) === 0 ? 'All stories linked to PRD' : 'Stories with unmapped source'}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -275,20 +284,20 @@ export function TraceabilityPage() {
       </div>
 
       {/* Warnings & Gap Analysis Alerts */}
-      {(activeMatrix.orphaned_requirements.length > 0 || activeMatrix.speculative_stories.length > 0) && (
+      {(((activeMatrix.orphaned_requirements?.length ?? 0) > 0) || ((activeMatrix.speculative_stories?.length ?? 0) > 0)) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {activeMatrix.orphaned_requirements.length > 0 && (
+          {(activeMatrix.orphaned_requirements?.length ?? 0) > 0 && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
               <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={18} />
               <div>
                 <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
-                  Gap Analysis: Orphaned Requirements ({activeMatrix.orphaned_requirements.length})
+                  Gap Analysis: Orphaned Requirements ({activeMatrix.orphaned_requirements?.length ?? 0})
                 </h4>
                 <p className="text-xs text-amber-800 mt-1 leading-relaxed">
                   The following requirements do not yet have corresponding User Stories generated:
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {activeMatrix.orphaned_requirements.map((reqId) => (
+                  {activeMatrix.orphaned_requirements?.map((reqId) => (
                     <span key={reqId} className="px-2 py-0.5 rounded font-mono text-2xs font-semibold bg-white border border-amber-200 text-amber-900">
                       {reqId}
                     </span>
@@ -298,18 +307,18 @@ export function TraceabilityPage() {
             </div>
           )}
 
-          {activeMatrix.speculative_stories.length > 0 && (
+          {(activeMatrix.speculative_stories?.length ?? 0) > 0 && (
             <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-3">
               <AlertCircle className="text-purple-600 flex-shrink-0 mt-0.5" size={18} />
               <div>
                 <h4 className="text-xs font-bold text-purple-900 uppercase tracking-wider">
-                  Traceability Gap: Speculative Stories ({activeMatrix.speculative_stories.length})
+                  Traceability Gap: Speculative Stories ({activeMatrix.speculative_stories?.length ?? 0})
                 </h4>
                 <p className="text-xs text-purple-800 mt-1 leading-relaxed">
                   These stories were generated or manually drafted without explicit reference to a PRD requirement ID:
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {activeMatrix.speculative_stories.map((sid) => (
+                  {activeMatrix.speculative_stories?.map((sid) => (
                     <span key={sid} className="px-2 py-0.5 rounded font-mono text-2xs font-semibold bg-white border border-purple-200 text-purple-900">
                       {sid}
                     </span>

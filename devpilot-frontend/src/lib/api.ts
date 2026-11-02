@@ -42,6 +42,29 @@ export interface ApiProject {
   updated_at: string;
 }
 
+export interface ApiRequirement {
+  id: string;
+  project_id: string;
+  requirement_key: string;
+  title: string;
+  description: string;
+  category: string | null;
+  priority: string | null;
+  source_document: string | null;
+  source_location: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiRequirementsUpload {
+  filename: string;
+  requirements_created: number;
+  chunks_created: number;
+  embedding_model: string;
+  embeddings_generated: boolean;
+}
+
 export interface ApiWorkItem {
   id: string;
   project_id: string;
@@ -176,28 +199,6 @@ export interface ApiSprintPlanResponse {
   total_story_points: number;
 }
 
-export interface ApiRequirement {
-  id: string;
-  project_id: string;
-  requirement_key: string;
-  title: string;
-  description: string;
-  category: string | null;
-  priority: string | null;
-  source_document: string | null;
-  source_location: Record<string, unknown> | null;
-  embedding_metadata: Record<string, unknown> | null;
-  created_by: string;
-  created_at: string;
-}
-
-export interface ApiRequirementsUpload {
-  document_id: string;
-  filename: string;
-  requirements: ApiRequirement[];
-  total_extracted: number;
-}
-
 export interface ApiTraceabilityLink {
   requirement_id: string;
   requirement_title: string;
@@ -207,12 +208,84 @@ export interface ApiTraceabilityLink {
   spec_endpoints: string[];
   coverage_score: number;
 }
+export interface ApiEvaluation {
+  id: string;
+  project_id: string;
+  status: string;
+  triggered_by: string | null;
+  created_by: string;
+  created_at: string;
+  completed_at: string | null;
+  artifact_stats: Record<string, unknown>;
+  metrics: {
+    grounding?: { claims_checked?: number; grounded_ratio?: number; hallucinated_count?: number };
+    coverage?: { requirements_total?: number; requirements_covered?: number; per_requirement?: Record<string, number> };
+    consistency?: { violations_count?: number };
+  };
+  issues: Array<{ type: string; kind?: string | null; key?: string | null; detail: string }>;
+  scores: { completeness?: number; groundedness?: number; consistency?: number; overall?: number };
+  summary: string | null;
+  rubric_metadata: { grounding_method?: string; traceability?: Record<string, unknown>; claim_details?: unknown[] } | null;
+}
 
 export interface ApiTraceabilityMatrix {
-  links: ApiTraceabilityLink[];
-  orphaned_requirements: string[];
-  speculative_stories: string[];
-  coverage_score: number;
+  project_id: string;
+  computed_at: string;
+  latest_version_numbers: Record<string, number>;
+  nodes: Array<{ kind: string; key: string; title: string | null }>;
+  edges: Array<{ source_kind: string; source_key: string; target_kind: string; target_key: string; relation: string }>;
+  coverage: Array<{
+    requirement_key: string;
+    requirement_title: string | null;
+    requirement_description: string | null;
+    source_document: string | null;
+    source_location: Record<string, unknown> | null;
+    covered_by: Record<string, string[]>;
+    fully_covered: boolean;
+    score: number;
+  }>;
+  gaps: Array<{ type: string; kind: string | null; key: string | null; detail: string }>;
+  requirements_total: number;
+  requirements_covered: number;
+  links?: ApiTraceabilityLink[];
+  orphaned_requirements?: string[];
+  speculative_stories?: string[];
+  coverage_score?: number;
+}
+
+export interface ApiPromptVersion {
+  id: string;
+  prompt_id: string;
+  version_number: number;
+  system_prompt: string;
+  user_prompt: string;
+  model: string | null;
+  temperature: number | null;
+  checksum: string;
+  variables?: string[];
+  created_at: string;
+}
+
+export interface ApiPrompt {
+  id: string;
+  project_id: string | null;
+  prompt_key: string;
+  name: string;
+  description: string | null;
+  artifact_type: string;
+  lifecycle_state: 'draft' | 'tested' | 'active' | 'retired';
+  active_version_number: number | null;
+  versions: ApiPromptVersion[];
+}
+
+export interface ApiPromptRegression {
+  id: string;
+  prompt_id: string;
+  candidate_version_number: number | null;
+  baseline_version_number: number | null;
+  is_pass: boolean;
+  results: Array<{ test_id: string; artifact_type: string; baseline_ok: boolean; candidate_ok: boolean; coverage_equal: boolean; verdict: string; detail?: string | null }>;
+  run_at: string;
 }
 
 class ApiClient {
@@ -255,7 +328,7 @@ class ApiClient {
     const token = this.getAccessToken();
     const headers = new Headers(options.headers || {});
 
-    if (!headers.has('Content-Type')) {
+    if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
 
@@ -263,7 +336,7 @@ class ApiClient {
       headers.set('Authorization', 'Bearer ' + token);
     }
 
-    let response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
     });
@@ -320,6 +393,19 @@ class ApiClient {
 
   public async listProjects(): Promise<ApiProject[]> {
     return this.request<ApiProject[]>('/projects');
+  }
+
+  public async listRequirements(projectId: string): Promise<ApiRequirement[]> {
+    return this.request<ApiRequirement[]>(`/projects/${projectId}/requirements`);
+  }
+
+  public async uploadRequirements(projectId: string, file: File): Promise<ApiRequirementsUpload> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.request<ApiRequirementsUpload>(`/projects/${projectId}/requirements/upload`, {
+      method: 'POST',
+      body: form,
+    });
   }
 
   public async createProject(payload: { name: string; description?: string }): Promise<ApiProject> {
@@ -564,42 +650,7 @@ class ApiClient {
     });
   }
 
-  // Requirements List & Upload
-  public async listRequirements(
-    projectId: string,
-    filters?: { category?: string; priority?: string },
-  ): Promise<ApiRequirement[]> {
-    const query = new URLSearchParams();
-    if (filters?.category) query.set('category', filters.category);
-    if (filters?.priority) query.set('priority', filters.priority);
-    const queryString = query.toString() ? `?${query.toString()}` : '';
-    return this.request<ApiRequirement[]>(`/projects/${projectId}/requirements${queryString}`);
-  }
-
-  public async uploadRequirements(projectId: string, file: File): Promise<ApiRequirementsUpload> {
-    const token = this.getAccessToken();
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/requirements/upload`, {
-      method: 'POST',
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-      body: formData,
-    });
-
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      try {
-        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
-        if (errorJson?.error?.message) errorMessage = errorJson.error.message;
-        else if (errorJson?.detail) errorMessage = String(errorJson.detail);
-      } catch { /* fallback */ }
-      throw new Error(errorMessage);
-    }
-    return response.json() as Promise<ApiRequirementsUpload>;
-  }
-
-  // Export ZIP
+  // Export ZIP (Engineer 5)
   public async exportZip(projectId: string, formats: string[]): Promise<Blob> {
     const token = this.getAccessToken();
     const response = await fetch(`${API_BASE_URL}/projects/${projectId}/export/zip`, {
@@ -622,17 +673,48 @@ class ApiClient {
     return response.blob();
   }
 
-  // Traceability Matrix
+  // Engineer 4: quality evaluation and traceability
+  public async runEvaluation(projectId: string): Promise<ApiEvaluation> {
+    return this.request<ApiEvaluation>(`/projects/${projectId}/evaluations/run`, { method: 'POST' });
+  }
+
+  public async listEvaluations(projectId: string, limit = 50, offset = 0): Promise<ApiEvaluation[]> {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    return this.request<ApiEvaluation[]>(`/projects/${projectId}/evaluations?${query}`);
+  }
+
+  public async getEvaluation(projectId: string, evaluationId: string): Promise<ApiEvaluation> {
+    return this.request<ApiEvaluation>(`/projects/${projectId}/evaluations/${evaluationId}`);
+  }
+
   public async getTraceabilityMatrix(projectId: string): Promise<ApiTraceabilityMatrix> {
-    try {
-      return await this.request<ApiTraceabilityMatrix>(`/projects/${projectId}/traceability/matrix`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('404') || message.includes('Not Found')) {
-        return { links: [], orphaned_requirements: [], speculative_stories: [], coverage_score: 0 };
-      }
-      throw err;
-    }
+    return this.request<ApiTraceabilityMatrix>(`/projects/${projectId}/traceability/matrix`);
+  }
+
+  // Engineer 4: PromptOps
+  public async listPrompts(projectId: string): Promise<ApiPrompt[]> {
+    return this.request<ApiPrompt[]>(`/prompts?project_id=${encodeURIComponent(projectId)}`);
+  }
+
+  public async seedPrompts(projectId: string): Promise<ApiPrompt[]> {
+    return this.request<ApiPrompt[]>(`/prompts/seed?project_id=${encodeURIComponent(projectId)}`, { method: 'POST' });
+  }
+
+  public async createPromptVersion(promptId: string, payload: Pick<ApiPromptVersion, 'system_prompt' | 'user_prompt'> & { model?: string | null; temperature?: number | null }): Promise<ApiPromptVersion> {
+    return this.request<ApiPromptVersion>(`/prompts/${promptId}/versions`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  public async runPromptRegression(promptId: string, versionNumber: number, baselineVersionNumber?: number): Promise<ApiPromptRegression> {
+    const query = baselineVersionNumber === undefined ? '' : `?baseline_version_number=${baselineVersionNumber}`;
+    return this.request<ApiPromptRegression>(`/prompts/${promptId}/versions/${versionNumber}/regression${query}`, { method: 'POST' });
+  }
+
+  public async activatePromptVersion(promptId: string, versionNumber: number): Promise<ApiPrompt> {
+    return this.request<ApiPrompt>(`/prompts/${promptId}/versions/${versionNumber}/activate`, { method: 'POST' });
+  }
+
+  public async retirePrompt(promptId: string, versionNumber: number): Promise<ApiPrompt> {
+    return this.request<ApiPrompt>(`/prompts/${promptId}/versions/${versionNumber}/retire`, { method: 'POST' });
   }
 }
 

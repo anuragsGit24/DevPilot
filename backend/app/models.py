@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -270,3 +271,125 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     user: Mapped[User | None] = relationship(back_populates="audit_logs")
+
+
+class EvaluationStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class Evaluation(Base):
+    """A rubric evaluation run over a project's generated artifacts (Engineer 4)."""
+
+    __tablename__ = "evaluations"
+    __table_args__ = (Index("ix_evaluations_project_created", "project_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[EvaluationStatus] = mapped_column(
+        Enum(EvaluationStatus, name="evaluation_status"), default=EvaluationStatus.running
+    )
+    triggered_by: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    artifact_stats: Mapped[dict] = mapped_column(JsonType, default=dict)
+    metrics: Mapped[dict] = mapped_column(JsonType, default=dict)
+    issues: Mapped[list] = mapped_column(JsonType, default=list)
+    scores: Mapped[dict] = mapped_column(JsonType, default=dict)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rubric_metadata: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+
+
+class PromptLifecycleState(str, enum.Enum):
+    draft = "draft"
+    tested = "tested"
+    active = "active"
+    retired = "retired"
+
+
+class Prompt(Base):
+    """Versioned prompt resource with lifecycle state (draft/tested/active/retired)."""
+
+    __tablename__ = "prompts"
+    __table_args__ = (
+        UniqueConstraint("project_id", "prompt_key", name="uq_prompts_project_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    prompt_key: Mapped[str] = mapped_column(String(100))
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    artifact_type: Mapped[str] = mapped_column(String(50))
+    lifecycle_state: Mapped[PromptLifecycleState] = mapped_column(
+        Enum(PromptLifecycleState, name="prompt_lifecycle_state"), default=PromptLifecycleState.draft
+    )
+    active_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    versions: Mapped[list["PromptVersion"]] = relationship(
+        back_populates="prompt", cascade="all, delete-orphan"
+    )
+    regressions: Mapped[list["PromptRegressionRun"]] = relationship(
+        back_populates="prompt", cascade="all, delete-orphan"
+    )
+
+
+class PromptVersion(Base):
+    """Immutable snapshot of a prompt revision (system + user text and settings)."""
+
+    __tablename__ = "prompt_versions"
+    __table_args__ = (
+        UniqueConstraint("prompt_id", "version_number", name="uq_prompt_versions_number"),
+        UniqueConstraint("prompt_id", "checksum", name="uq_prompt_versions_checksum"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    prompt_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prompts.id", ondelete="CASCADE"), index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer)
+    system_prompt: Mapped[str] = mapped_column(Text)
+    user_prompt: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    checksum: Mapped[str] = mapped_column(String(64))
+    variables: Mapped[list] = mapped_column(JsonType, default=list)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    prompt: Mapped[Prompt] = relationship(back_populates="versions")
+
+
+class PromptRegressionRun(Base):
+    """Outcome of a prompt regression run comparing two prompt revisions."""
+
+    __tablename__ = "prompt_regressions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    prompt_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prompts.id", ondelete="CASCADE"), index=True
+    )
+    candidate_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    baseline_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    is_pass: Mapped[bool] = mapped_column(Boolean, default=False)
+    results: Mapped[list] = mapped_column(JsonType, default=list)
+    run_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    prompt: Mapped[Prompt] = relationship(back_populates="regressions")
