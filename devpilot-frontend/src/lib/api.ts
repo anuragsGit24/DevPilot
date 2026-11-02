@@ -199,6 +199,15 @@ export interface ApiSprintPlanResponse {
   total_story_points: number;
 }
 
+export interface ApiTraceabilityLink {
+  requirement_id: string;
+  requirement_title: string;
+  story_ids: string[];
+  criteria_ids: string[];
+  test_case_ids: string[];
+  spec_endpoints: string[];
+  coverage_score: number;
+}
 export interface ApiEvaluation {
   id: string;
   project_id: string;
@@ -238,6 +247,10 @@ export interface ApiTraceabilityMatrix {
   gaps: Array<{ type: string; kind: string | null; key: string | null; detail: string }>;
   requirements_total: number;
   requirements_covered: number;
+  links?: ApiTraceabilityLink[];
+  orphaned_requirements?: string[];
+  speculative_stories?: string[];
+  coverage_score?: number;
 }
 
 export interface ApiPromptVersion {
@@ -337,11 +350,11 @@ class ApiClient {
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       try {
-        const errorJson = await response.json();
+        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
         if (errorJson?.error?.message) {
           errorMessage = errorJson.error.message;
         } else if (errorJson?.detail) {
-          errorMessage = errorJson.detail;
+          errorMessage = String(errorJson.detail);
         }
       } catch {
         // Fallback to response.statusText
@@ -635,6 +648,29 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
+  }
+
+  // Export ZIP (Engineer 5)
+  public async exportZip(projectId: string, formats: string[]): Promise<Blob> {
+    const token = this.getAccessToken();
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/export/zip`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      body: JSON.stringify({ formats }),
+    });
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorJson = await response.json() as { error?: { message?: string }; detail?: string };
+        if (errorJson?.error?.message) errorMessage = errorJson.error.message;
+        else if (errorJson?.detail) errorMessage = String(errorJson.detail);
+      } catch { /* fallback */ }
+      throw new Error(errorMessage);
+    }
+    return response.blob();
   }
 
   // Engineer 4: quality evaluation and traceability

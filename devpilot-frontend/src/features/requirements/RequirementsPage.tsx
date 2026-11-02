@@ -88,6 +88,7 @@ export function RequirementsPage() {
       });
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 

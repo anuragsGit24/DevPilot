@@ -12,6 +12,7 @@ from app.api import (
     audit,
     auth,
     evaluations,
+    export,
     health,
     projects,
     prompts,
@@ -46,6 +47,7 @@ app.include_router(work_items.router, prefix="/api/v1")
 app.include_router(requirements.router, prefix="/api/v1")
 app.include_router(architecture.router, prefix="/api/v1")
 app.include_router(sprints.router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")
 app.include_router(traceability.router, prefix="/api/v1")
 app.include_router(evaluations.router, prefix="/api/v1")
 app.include_router(prompts.router, prefix="/api/v1")

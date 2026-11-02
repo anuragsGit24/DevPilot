@@ -512,6 +512,16 @@ class RequirementCoverage(BaseModel):
     score: float
 
 
+class TraceabilityLink(BaseModel):
+    requirement_id: str
+    requirement_title: str
+    story_ids: list[str] = Field(default_factory=list)
+    criteria_ids: list[str] = Field(default_factory=list)
+    test_case_ids: list[str] = Field(default_factory=list)
+    spec_endpoints: list[str] = Field(default_factory=list)
+    coverage_score: float = 0.0
+
+
 class TraceabilityMatrix(BaseModel):
     nodes: list[TraceNode]
     edges: list[TraceEdge]
@@ -525,6 +535,10 @@ class TraceabilityMatrixResponse(TraceabilityMatrix):
     project_id: uuid.UUID
     computed_at: datetime
     latest_version_numbers: dict[str, int]
+    links: list[TraceabilityLink] = Field(default_factory=list)
+    coverage_score: float = 0.0
+    orphaned_requirements: list[str] = Field(default_factory=list)
+    speculative_stories: list[str] = Field(default_factory=list)
 
 
 # Evaluation Schemas (Engineer 4)
