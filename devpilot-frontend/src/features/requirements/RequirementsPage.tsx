@@ -15,7 +15,7 @@ import {
   Edit3, Sparkles, Filter, Plus, Eye,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
-import { api } from '@/lib/api';
+import { api, type ApiRequirementSearchResult } from '@/lib/api';
 
 export function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -38,7 +38,16 @@ export function RequirementsPage() {
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [newReqOpen, setNewReqOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [lastUpload, setLastUpload] = useState<{ filename: string; count: number } | null>(null);
+  const [lastUpload, setLastUpload] = useState<{
+    filename: string;
+    count: number;
+    chunks: number;
+    embeddingsGenerated: boolean;
+    embeddingModel: string;
+  } | null>(null);
+  const [semanticQuery, setSemanticQuery] = useState('');
+  const [semanticResults, setSemanticResults] = useState<ApiRequirementSearchResult[]>([]);
+  const [searchingSemantically, setSearchingSemantically] = useState(false);
 
   useEffect(() => {
     const sourceKey = searchParams.get('source');
@@ -74,11 +83,17 @@ export function RequirementsPage() {
       if (!projectId) throw new Error('Select a project before uploading requirements.');
       const result = await api.uploadRequirements(projectId, file);
       await refreshBackendRequirements(projectId);
-      setLastUpload({ filename: result.filename, count: result.requirements_created });
+      setLastUpload({
+        filename: result.filename,
+        count: result.requirements_created,
+        chunks: result.chunks_created,
+        embeddingsGenerated: result.embeddings_generated,
+        embeddingModel: result.embedding_model,
+      });
       toast({
         variant: 'success',
         title: 'Requirements ingested',
-        description: `${result.requirements_created} requirement(s) extracted and saved for evaluation.`,
+        description: `${result.requirements_created} requirement(s) extracted and ${result.embeddings_generated ? 'embedded for semantic search' : 'saved'}.`,
       });
     } catch (error) {
       toast({
@@ -156,7 +171,11 @@ export function RequirementsPage() {
 
             {lastUpload && (
               <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
-                Ingested <span className="font-semibold">{lastUpload.filename}</span> · {lastUpload.count} requirement(s) saved. The original file is not stored for download.
+                Ingested <span className="font-semibold">{lastUpload.filename}</span> · {lastUpload.count} requirement(s), {lastUpload.chunks} chunk(s) saved.
+                {lastUpload.embeddingsGenerated
+                  ? ` Semantic embeddings generated with ${lastUpload.embeddingModel}.`
+                  : ' Embeddings were not generated; configure an embedding provider to enable semantic search.'}
+                {' '}The original file is not stored for download.
               </div>
             )}
 
@@ -245,6 +264,77 @@ export function RequirementsPage() {
           </div>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Semantic Requirement Search</h3>
+            <p className="text-xs text-slate-500">Search the embedded requirement chunks by meaning, not only exact keywords.</p>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <form
+            className="flex flex-col sm:flex-row gap-2"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!projectId || !semanticQuery.trim()) return;
+              setSearchingSemantically(true);
+              try {
+                const response = await api.searchRequirements(projectId, semanticQuery.trim());
+                setSemanticResults(response.results);
+              } catch (error) {
+                toast({
+                  variant: 'error',
+                  title: 'Semantic search failed',
+                  description: error instanceof Error ? error.message : 'Could not search embedded requirements.',
+                });
+              } finally {
+                setSearchingSemantically(false);
+              }
+            }}
+          >
+            <Input
+              value={semanticQuery}
+              onChange={(event) => setSemanticQuery(event.target.value)}
+              placeholder="Example: high-value transfer authentication"
+              className="flex-1"
+            />
+            <Button type="submit" variant="secondary" disabled={searchingSemantically || !semanticQuery.trim()}>
+              {searchingSemantically ? 'Searching...' : 'Search embeddings'}
+            </Button>
+          </form>
+          {semanticResults.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {semanticResults.map((result) => (
+                <button
+                  key={`${result.requirement.id}-${result.chunk.id}`}
+                  type="button"
+                  className="block w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-left hover:border-blue-300"
+                  onClick={() => setSelectedReq({
+                    id: result.requirement.requirement_key,
+                    apiId: result.requirement.id,
+                    projectId: result.requirement.project_id,
+                    title: result.requirement.title,
+                    description: result.requirement.description,
+                    category: (result.requirement.category ?? 'functional') as Requirement['category'],
+                    priority: (result.requirement.priority ?? 'should') as Requirement['priority'],
+                    status: 'extracted',
+                    sourceDocumentName: result.requirement.source_document ?? undefined,
+                    createdAt: result.requirement.created_at,
+                    updatedAt: result.requirement.updated_at,
+                  })}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs font-semibold text-blue-600">{result.requirement.requirement_key}</span>
+                    <span className="text-2xs font-semibold text-slate-500">{Math.round(result.similarity * 100)}% match</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-700">{result.chunk.content}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       {/* Requirements Table */}
       <Card>

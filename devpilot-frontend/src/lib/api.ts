@@ -65,6 +65,23 @@ export interface ApiRequirementsUpload {
   embeddings_generated: boolean;
 }
 
+export interface ApiRequirementSearchResult {
+  requirement: ApiRequirement;
+  chunk: {
+    id: string;
+    requirement_id: string;
+    chunk_index: number;
+    content: string;
+    token_count: number;
+    embedding_metadata: Record<string, unknown> | null;
+  };
+  similarity: number;
+}
+
+export interface ApiRequirementSearchResponse {
+  results: ApiRequirementSearchResult[];
+}
+
 export interface ApiWorkItem {
   id: string;
   project_id: string;
@@ -405,6 +422,17 @@ class ApiClient {
     return this.request<ApiRequirementsUpload>(`/projects/${projectId}/requirements/upload`, {
       method: 'POST',
       body: form,
+    });
+  }
+
+  public async searchRequirements(
+    projectId: string,
+    query: string,
+    limit = 10,
+  ): Promise<ApiRequirementSearchResponse> {
+    return this.request<ApiRequirementSearchResponse>(`/projects/${projectId}/requirements/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
     });
   }
 
