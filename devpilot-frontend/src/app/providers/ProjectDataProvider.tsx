@@ -123,7 +123,7 @@ interface ProjectDataContextType {
   projects: Project[];
   activeProject: Project;
   setActiveProjectId: (id: string) => void;
-  createProject: (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => Project;
+  createProject: (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => Promise<Project>;
   updateProject: (id: string, updates: Partial<Project>) => void;
 
   // Documents
@@ -702,7 +702,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     void request.catch((error: Error) => {
       toast({ variant: 'error', title: 'Changes could not be saved', description: error.message });
     });
-  }, [toast]);
+  }, []);
 
   const logActivity = useCallback((action: string, entityType: ActivityEntry['entityType'], entityId: string, entityTitle: string) => {
     const newEntry: ActivityEntry = {
@@ -720,17 +720,13 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, []);
 
   // Project operations
-  const createProject = useCallback((data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => {
-    const newProj: Project = { ...EMPTY_PROJECT, ...data, id: generateId('pending-project') };
-    void api.createProject({ name: data.name, description: data.description }).then((created) => {
-      const persisted = mapProject(created, { requirements: 0, artifacts: 0 });
-      setProjects((prev) => [persisted, ...prev.filter((project) => project.id !== newProj.id)]);
-      setActiveProjectId(persisted.id);
-    }).catch((error: Error) => {
-      toast({ variant: 'error', title: 'Project could not be created', description: error.message });
-    });
-    return newProj;
-  }, [toast]);
+  const createProject = useCallback(async (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => {
+    const created = await api.createProject({ name: data.name, description: data.description });
+    const persisted = mapProject(created, { requirements: 0, artifacts: 0 });
+    setProjects((prev) => [persisted, ...prev]);
+    setActiveProjectId(persisted.id);
+    return persisted;
+  }, []);
 
   const updateProject = useCallback((id: string, updates: Partial<Project>) => {
     void api.updateProject(id, { name: updates.name, description: updates.description }).then((updated) => {

@@ -9,7 +9,7 @@ import { useToast } from '@/app/providers/ToastProvider';
 
 export function NewProjectPage() {
   const navigate = useNavigate();
-  const { createProject, uploadDocument } = useProjectData();
+  const { createProject, uploadRequirementsFile } = useProjectData();
   const { toast } = useToast();
 
   const [name, setName] = useState('');
@@ -29,7 +29,7 @@ export function NewProjectPage() {
         .map((t) => t.trim().toLowerCase())
         .filter(Boolean);
 
-      const newProj = createProject({
+      const newProj = await createProject({
         name,
         description,
         tags,
@@ -38,16 +38,17 @@ export function NewProjectPage() {
       });
 
       if (selectedFile) {
-        await uploadDocument(
-          { name: selectedFile.name, size: selectedFile.size, type: selectedFile.type },
-          newProj.id,
-        );
+        await uploadRequirementsFile(selectedFile, newProj.id);
       }
 
       toast({ variant: 'success', title: 'Project Initialized', description: 'Redirecting to requirements workspace...' });
       navigate(`/projects/${newProj.id}/requirements`);
-    } catch {
-      toast({ variant: 'error', title: 'Failed to create project' });
+    } catch (error) {
+      toast({
+        variant: 'error',
+        title: 'Failed to create project',
+        description: error instanceof Error ? error.message : 'Could not create the project.',
+      });
     } finally {
       setLoading(false);
     }
