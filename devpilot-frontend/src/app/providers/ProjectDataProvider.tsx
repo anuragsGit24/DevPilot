@@ -7,6 +7,7 @@ import type {
   AcceptanceCriteria,
   TestCase,
   ApiSpecification,
+  ApiEndpoint,
   ArchitectureRecommendation,
   Sprint,
   CaseStudyComparison,
@@ -707,9 +708,9 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   const logActivity = useCallback((action: string, entityType: ActivityEntry['entityType'], entityId: string, entityTitle: string) => {
     const newEntry: ActivityEntry = {
       id: generateId('act'),
-      userId: 'usr-001',
-      userName: 'Demo User',
-      userRole: 'admin' as UserRole,
+      userId: user?.id ?? 'usr-001',
+      userName: user?.name ?? 'Current User',
+      userRole: (user?.role as UserRole) ?? 'admin',
       action,
       entityType,
       entityId,
@@ -717,7 +718,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       timestamp: new Date().toISOString(),
     };
     setActivities((prev) => [newEntry, ...prev.slice(0, 49)]);
-  }, []);
+  }, [user]);
 
   // Project operations
   const createProject = useCallback(async (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => {
@@ -1118,11 +1119,69 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   const generateApiEndpoints = useCallback(async (storyIds: string[]) => {
     void storyIds;
+    if (!activeProjectId) {
+      toast({ variant: 'error', title: 'No active project selected' });
+      return;
+    }
     setIsProcessing((prev) => ({ ...prev, generateApi: true }));
-    await sleep(1600);
-    setIsProcessing((prev) => ({ ...prev, generateApi: false }));
-    toast({ variant: 'success', title: 'OpenAPI Spec Synchronized', description: 'Updated endpoints to match latest user stories.' });
-  }, [toast]);
+    try {
+      const requirementIds = requirements.map((r) => r.apiId).filter((id): id is string => Boolean(id));
+      const artifact = await api.generateApiSpec(activeProjectId, {
+        title: `${activeProject.name || 'Project'} OpenAPI 3.1 Specification`,
+        requirement_ids: requirementIds.length > 0 ? requirementIds : undefined,
+      });
+      const payload = artifact.current_version?.payload as Record<string, unknown> | undefined;
+      const rawPaths = (payload?.paths as Record<string, any>) || {};
+      const endpoints: ApiEndpoint[] = [];
+      for (const [path, methods] of Object.entries(rawPaths)) {
+        if (methods && typeof methods === 'object') {
+          for (const [method, details] of Object.entries(methods)) {
+            const m = method.toUpperCase();
+            if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(m)) {
+              const d = details as Record<string, any>;
+              endpoints.push({
+                path,
+                method: m as ApiEndpoint['method'],
+                summary: String(d.summary || `${m} ${path}`),
+                description: String(d.description || ''),
+                tags: Array.isArray(d.tags) ? d.tags.map(String) : ['Core'],
+                authentication: Boolean(d.security && d.security.length > 0),
+                responses: (d.responses as Record<string, any>) || { '200': { description: 'Success' } },
+              });
+            }
+          }
+        }
+      }
+
+      const rawYaml = JSON.stringify(payload ?? {}, null, 2);
+      const mappedSpec: ApiSpecification = {
+        id: artifact.id,
+        projectId: activeProjectId,
+        artifactVersionId: artifact.current_version?.id || 'v1',
+        title: artifact.title || 'OpenAPI 3.1 Specification',
+        version: String(payload?.openapi || '3.1.0'),
+        openApiVersion: String(payload?.openapi || '3.1.0'),
+        description: typeof payload?.info === 'object' && payload.info ? String((payload.info as any).description || '') : '',
+        endpoints,
+        rawYaml,
+        validationStatus: 'valid',
+        validationFindings: [],
+        status: (artifact.status as ArtifactStatus) || 'draft',
+        sourceRequirementIds: artifact.current_version?.source_requirement_ids || [],
+        createdAt: artifact.created_at,
+        updatedAt: artifact.updated_at,
+      };
+
+      setApiSpec(mappedSpec);
+      persistItem('api_specification', mappedSpec);
+      await refreshGeneratedArtifacts(activeProjectId);
+      toast({ variant: 'success', title: 'OpenAPI Spec Synchronized', description: `Generated spec with ${endpoints.length} endpoint(s).` });
+    } catch (error) {
+      toast({ variant: 'error', title: 'API Spec generation failed', description: error instanceof Error ? error.message : 'Unable to generate OpenAPI spec.' });
+    } finally {
+      setIsProcessing((prev) => ({ ...prev, generateApi: false }));
+    }
+  }, [activeProject.name, activeProjectId, persistItem, refreshGeneratedArtifacts, requirements, toast]);
 
   // Architecture
   const updateArchitecture = useCallback((arch: ArchitectureRecommendation) => {
