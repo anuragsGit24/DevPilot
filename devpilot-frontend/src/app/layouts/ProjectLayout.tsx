@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useParams, Link } from 'react-router-dom';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
-import { cn, scoreColor, scoreBgColor } from '@/lib/utils';
+import { cn, scoreBgColor } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import {
-  FileText, Layers, Calendar, BarChart3,
-  Sparkles, Download, Settings, ChevronRight, CheckCircle2,
+   FileText, Layers, Calendar, BarChart3, GitBranch,
+   Sparkles, Download, ChevronRight, CheckCircle2,
   Share2, ArrowLeft,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
@@ -43,6 +43,7 @@ export function ProjectLayout() {
     { id: 'artifacts', label: 'Artifacts', path: `/projects/${project.id}/artifacts`, count: project.artifactCount, icon: Layers },
     { id: 'sprints', label: 'Sprint Planning', path: `/projects/${project.id}/sprints`, icon: Calendar },
     { id: 'evaluations', label: 'Evaluations', path: `/projects/${project.id}/evaluations`, icon: BarChart3 },
+    { id: 'traceability', label: 'Traceability', path: `/projects/${project.id}/traceability`, icon: GitBranch },
     { id: 'assistant', label: 'AI Assistant', path: `/projects/${project.id}/assistant`, icon: Sparkles },
   ];
 
@@ -214,7 +215,7 @@ export function ProjectLayout() {
             ].map((fmt) => (
               <div
                 key={fmt.id}
-                onClick={() => setExportFormat(fmt.id as any)}
+                onClick={() => setExportFormat(fmt.id as 'markdown' | 'json' | 'csv' | 'jira')}
                 className={cn(
                   'p-3.5 rounded-lg border text-left cursor-pointer transition-all',
                   exportFormat === fmt.id

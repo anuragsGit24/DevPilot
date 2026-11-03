@@ -12,4 +12,7 @@ if (typeof window !== 'undefined') {
       this.open = false;
     };
   }
+  if (!window.HTMLElement.prototype.scrollIntoView) {
+    window.HTMLElement.prototype.scrollIntoView = () => {};
+  }
 }

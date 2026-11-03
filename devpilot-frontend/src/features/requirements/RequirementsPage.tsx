@@ -1,33 +1,33 @@
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 import { Badge, RequirementStatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { SearchInput, Select, Input, Textarea } from '@/components/ui/Input';
+import { SearchInput, Input, Textarea } from '@/components/ui/Input';
 import { Dialog } from '@/components/ui/Dialog';
 import { Drawer } from '@/components/ui/Drawer';
 import { formatBytes } from '@/lib/utils';
 import { formatDate } from '@/lib/date';
-import type { Requirement, RequirementStatus, RequirementCategory, RequirementPriority } from '@/types/domain';
+import type { Requirement, RequirementCategory, RequirementPriority } from '@/types/domain';
 import {
   Upload, FileText, CheckCircle2, XCircle, AlertTriangle,
-  Edit3, Sparkles, Filter, ChevronRight, Plus, Eye, Layers,
+  Edit3, Sparkles, Filter, Plus, Eye,
 } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
+import { api, type ApiRequirementSearchResult } from '@/lib/api';
 
 export function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     requirements,
     documents,
-    uploadDocument,
-    extractRequirementsFromDoc,
+    refreshBackendRequirements,
     updateRequirementStatus,
     updateRequirement,
     addRequirement,
     generateUserStories,
-    isProcessing,
   } = useProjectData();
   const { toast } = useToast();
 
@@ -38,6 +38,27 @@ export function RequirementsPage() {
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [newReqOpen, setNewReqOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [lastUpload, setLastUpload] = useState<{
+    filename: string;
+    count: number;
+    chunks: number;
+    embeddingsGenerated: boolean;
+    embeddingModel: string;
+  } | null>(null);
+  const [semanticQuery, setSemanticQuery] = useState('');
+  const [semanticResults, setSemanticResults] = useState<ApiRequirementSearchResult[]>([]);
+  const [searchingSemantically, setSearchingSemantically] = useState(false);
+
+  useEffect(() => {
+    const sourceKey = searchParams.get('source');
+    if (!sourceKey) return;
+    const requirement = requirements.find((item) => item.id === sourceKey);
+    if (!requirement) return;
+    // Resolve a deep link once the backend requirements have loaded into project state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedReq(requirement);
+    setSearchParams({}, { replace: true });
+  }, [requirements, searchParams, setSearchParams]);
 
   // Filter requirements
   const filteredReqs = requirements.filter((r) => {
@@ -59,14 +80,31 @@ export function RequirementsPage() {
     if (!file) return;
     setUploading(true);
     try {
-      await uploadDocument({ name: file.name, size: file.size, type: file.type }, projectId || 'proj-001');
+      if (!projectId) throw new Error('Select a project before uploading requirements.');
+      const result = await api.uploadRequirements(projectId, file);
+      await refreshBackendRequirements(projectId);
+      setLastUpload({
+        filename: result.filename,
+        count: result.requirements_created,
+        chunks: result.chunks_created,
+        embeddingsGenerated: result.embeddings_generated,
+        embeddingModel: result.embedding_model,
+      });
+      toast({
+        variant: 'success',
+        title: 'Requirements ingested',
+        description: `${result.requirements_created} requirement(s) extracted and ${result.embeddings_generated ? 'embedded for semantic search' : 'saved'}.`,
+      });
+    } catch (error) {
+      toast({
+        variant: 'error',
+        title: 'Requirement ingestion failed',
+        description: error instanceof Error ? error.message : 'Could not upload this requirements document.',
+      });
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
-  };
-
-  const handleExtractFromDoc = async (docId: string) => {
-    await extractRequirementsFromDoc(docId);
   };
 
   return (
@@ -129,21 +167,17 @@ export function RequirementsPage() {
                 </label>
               </div>
 
-              {documents.length > 0 && (
-                <div className="w-full sm:w-auto flex-shrink-0 flex sm:flex-col gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    loading={isProcessing[`extract_${documents[0].id}`]}
-                    onClick={() => handleExtractFromDoc(documents[0].id)}
-                    icon={<Sparkles size={14} className="text-blue-600" />}
-                  >
-                    Run AI Extraction
-                  </Button>
-                </div>
-              )}
             </div>
+
+            {lastUpload && (
+              <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                Ingested <span className="font-semibold">{lastUpload.filename}</span> · {lastUpload.count} requirement(s), {lastUpload.chunks} chunk(s) saved.
+                {lastUpload.embeddingsGenerated
+                  ? ` Semantic embeddings generated with ${lastUpload.embeddingModel}.`
+                  : ' Embeddings were not generated; configure an embedding provider to enable semantic search.'}
+                {' '}The original file is not stored for download.
+              </div>
+            )}
 
             {/* Ingested Documents List */}
             {documents.length > 0 && (
@@ -231,6 +265,77 @@ export function RequirementsPage() {
         </div>
       </div>
 
+      <Card>
+        <CardHeader>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Semantic Requirement Search</h3>
+            <p className="text-xs text-slate-500">Search the embedded requirement chunks by meaning, not only exact keywords.</p>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <form
+            className="flex flex-col sm:flex-row gap-2"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!projectId || !semanticQuery.trim()) return;
+              setSearchingSemantically(true);
+              try {
+                const response = await api.searchRequirements(projectId, semanticQuery.trim());
+                setSemanticResults(response.results);
+              } catch (error) {
+                toast({
+                  variant: 'error',
+                  title: 'Semantic search failed',
+                  description: error instanceof Error ? error.message : 'Could not search embedded requirements.',
+                });
+              } finally {
+                setSearchingSemantically(false);
+              }
+            }}
+          >
+            <Input
+              value={semanticQuery}
+              onChange={(event) => setSemanticQuery(event.target.value)}
+              placeholder="Example: high-value transfer authentication"
+              className="flex-1"
+            />
+            <Button type="submit" variant="secondary" disabled={searchingSemantically || !semanticQuery.trim()}>
+              {searchingSemantically ? 'Searching...' : 'Search embeddings'}
+            </Button>
+          </form>
+          {semanticResults.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {semanticResults.map((result) => (
+                <button
+                  key={`${result.requirement.id}-${result.chunk.id}`}
+                  type="button"
+                  className="block w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-left hover:border-blue-300"
+                  onClick={() => setSelectedReq({
+                    id: result.requirement.requirement_key,
+                    apiId: result.requirement.id,
+                    projectId: result.requirement.project_id,
+                    title: result.requirement.title,
+                    description: result.requirement.description,
+                    category: (result.requirement.category ?? 'functional') as Requirement['category'],
+                    priority: (result.requirement.priority ?? 'should') as Requirement['priority'],
+                    status: 'extracted',
+                    sourceDocumentName: result.requirement.source_document ?? undefined,
+                    createdAt: result.requirement.created_at,
+                    updatedAt: result.requirement.updated_at,
+                  })}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs font-semibold text-blue-600">{result.requirement.requirement_key}</span>
+                    <span className="text-2xs font-semibold text-slate-500">{Math.round(result.similarity * 100)}% match</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-700">{result.chunk.content}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardBody>
+      </Card>
+
       {/* Requirements Table */}
       <Card>
         <div className="overflow-x-auto">
@@ -263,7 +368,7 @@ export function RequirementsPage() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 line-clamp-2">{req.description}</p>
-                      <p className="text-2xs text-slate-400 font-mono">Source: {req.sourceSection}</p>
+                      <p className="text-2xs text-slate-400 font-mono">Source: {req.sourceSection || req.sourceDocumentName || req.sourceDocumentId || 'Not recorded'}</p>
                     </div>
                   </td>
                   <td>
@@ -394,7 +499,7 @@ export function RequirementsPage() {
             <div>
               <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Source Clause & Attribution</h4>
               <p className="text-xs text-slate-600 font-mono bg-slate-50 p-2 rounded border border-slate-200">
-                {selectedReq.sourceSection}
+                {selectedReq.sourceSection || selectedReq.sourceDocumentName || selectedReq.sourceDocumentId || 'Not recorded'}
               </p>
             </div>
 

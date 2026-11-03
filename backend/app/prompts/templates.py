@@ -92,6 +92,7 @@ Target User Stories (if any):
 Instructions:
 Generate complete Given-When-Then Acceptance Criteria for the requirements above.
 Ensure clear assertions that can be automated by test engineers.
+For every criterion, include the exact source requirement key(s) it covers in 'source_requirement_keys'.
 """
 
 TEST_CASES_SYSTEM_PROMPT = """You are a Lead Automation & Quality Engineer.
@@ -132,6 +133,7 @@ Associated Stories / Criteria:
 
 Instructions:
 Generate comprehensive test cases covering positive execution, input validation failures, and security controls.
+For every test case, include the exact source requirement key(s) it verifies in 'source_requirement_keys'.
 """
 
 OPENAPI_SPEC_SYSTEM_PROMPT = """You are a Chief API Architect and Enterprise Integration Specialist.

@@ -104,9 +104,11 @@ export interface SourceDocument {
 
 export interface Requirement {
   id: string;
+  apiId?: string;
   projectId: string;
   documentId?: string;
   sourceDocumentId?: string;
+  sourceDocumentName?: string;
   sourceText?: string;
   normalizedText?: string;
   title?: string;
