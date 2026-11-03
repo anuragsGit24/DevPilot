@@ -37,7 +37,7 @@ jobs:
 
       - name: Run backend tests and create coverage report
         working-directory: backend
-        run: uv run --no-sync python -m pytest --cov=app --cov-report=xml:coverage.xml
+        run: .venv/bin/python -m pytest --cov=app --cov-report=xml:coverage.xml
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
