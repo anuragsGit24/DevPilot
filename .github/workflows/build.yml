@@ -61,8 +61,6 @@ jobs:
           args: >
             -Dsonar.organization=anuragsgit24
             -Dsonar.projectKey=anuragsGit24_DevPilot
-            -Dsonar.sources=backend/app,devpilot-frontend/src
-            -Dsonar.tests=backend/tests,devpilot-frontend/src/test
-            -Dsonar.exclusions=backend/tests/**,devpilot-frontend/src/test/**,**/node_modules/**,**/dist/**,**/coverage/**
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**
             -Dsonar.python.coverage.reportPaths=backend/coverage.xml
             -Dsonar.javascript.lcov.reportPaths=devpilot-frontend/coverage/lcov.info
