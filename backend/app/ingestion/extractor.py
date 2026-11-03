@@ -70,9 +70,9 @@ def _priority_for(description: str) -> MoSCoWPriority:
 def _category_for(description: str) -> RequirementCategory:
     value = description.lower()
     keyword_groups = (
-        (RequirementCategory.security, ("security", "authenticate", "authorize", "encrypt", "password")),
-        (RequirementCategory.performance, ("latency", "performance", "response time", "throughput", "scale")),
-        (RequirementCategory.usability, ("accessible", "usability", "intuitive", "screen reader")),
+        (RequirementCategory.security, ("security", "authenticate", "authorize", "encrypt", "password", "credential", "licens", "permission", "verification", "token", "privacy")),
+        (RequirementCategory.performance, ("latency", "performance", "response time", "throughput", "scale", "millisecond", "second")),
+        (RequirementCategory.usability, ("accessible", "usability", "intuitive", "screen reader", "translation", "multilingual", "multi-language", "ui", "ux")),
     )
     for category, keywords in keyword_groups:
         if any(keyword in value for keyword in keywords):

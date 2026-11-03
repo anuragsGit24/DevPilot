@@ -663,22 +663,27 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   const refreshBackendRequirements = useCallback(async (projectId: string) => {
     const records = await api.listRequirements(projectId);
-    const mapped: Requirement[] = records.map((record) => ({
-      id: record.requirement_key,
-      apiId: record.id,
-      projectId: record.project_id,
-      title: record.title,
-      description: record.description,
-      category: (record.category ?? 'functional') as Requirement['category'],
-      priority: (record.priority ?? 'should') as Requirement['priority'],
-      status: 'extracted',
-      sourceDocumentId: record.source_document ?? undefined,
-      sourceDocumentName: record.source_document ?? undefined,
-      sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
-      createdAt: record.created_at,
-      updatedAt: record.updated_at,
-    }));
+    const mapped: Requirement[] = records.map((record) => {
+      const confidence = record.priority === 'must' ? 95 : record.priority === 'should' ? 88 : 82;
+      return {
+        id: record.requirement_key,
+        apiId: record.id,
+        projectId: record.project_id,
+        title: record.title,
+        description: record.description,
+        category: (record.category ?? 'functional') as Requirement['category'],
+        priority: (record.priority ?? 'should') as Requirement['priority'],
+        status: 'extracted',
+        confidenceScore: confidence,
+        sourceDocumentId: record.source_document ?? undefined,
+        sourceDocumentName: record.source_document ?? undefined,
+        sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
+        createdAt: record.created_at,
+        updatedAt: record.updated_at,
+      };
+    });
     setRequirements(mapped);
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, requirementCount: mapped.length } : p)));
     return mapped;
   }, []);
 
