@@ -1,0 +1,68 @@
+name: SonarQube
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-analyze:
+    name: Build, test, and analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend and test dependencies
+        working-directory: backend
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run backend tests and create coverage report
+        working-directory: backend
+        run: python -m pytest --cov=app --cov-report=xml:coverage.xml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: devpilot-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: devpilot-frontend
+        run: npm ci
+
+      - name: Run frontend tests and create coverage report
+        working-directory: devpilot-frontend
+        run: npm run test:coverage -- --run
+
+      - name: Build frontend
+        working-directory: devpilot-frontend
+        run: npm run build
+
+      - name: Scan with SonarQube
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=anuragsgit24
+            -Dsonar.projectKey=anuragsGit24_DevPilot
+            -Dsonar.sources=backend/app,devpilot-frontend/src
+            -Dsonar.tests=backend/tests,devpilot-frontend/src/test
+            -Dsonar.exclusions=backend/tests/**,devpilot-frontend/src/test/**,**/node_modules/**,**/dist/**,**/coverage/**
+            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+            -Dsonar.javascript.lcov.reportPaths=devpilot-frontend/coverage/lcov.info
