@@ -19,7 +19,7 @@ _REQUIREMENT_MARKER = re.compile(
 _BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
-def extract_requirements(text: str) -> list[ExtractedRequirement]:
+def extract_requirements(text: str, start_index: int = 1) -> list[ExtractedRequirement]:
     candidates: list[str] = []
     for paragraph in text.splitlines():
         is_bullet = bool(_BULLET.match(paragraph))
@@ -28,7 +28,7 @@ def extract_requirements(text: str) -> list[ExtractedRequirement]:
             candidates.extend(_split_atomic_requirements(cleaned))
 
     requirements: list[ExtractedRequirement] = []
-    for index, description in enumerate(candidates, start=1):
+    for index, description in enumerate(candidates, start=start_index):
         priority = _priority_for(description)
         requirements.append(
             ExtractedRequirement(
