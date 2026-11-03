@@ -985,6 +985,10 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
       for (const item of generated) {
         try {
+          const validSourceUuids = (item.sourceRequirementIds || [])
+            .map((id) => apiIdByLocalId.get(id) || (id.includes('-') && id.length === 36 ? id : undefined))
+            .filter((id): id is string => Boolean(id));
+
           const created = await api.createWorkItem(activeProjectId, {
             record_type: 'user_story',
             title: item.title,
@@ -996,7 +1000,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
               i_want: item.action,
               so_that: item.benefit,
             },
-            source_ids: item.sourceRequirementIds || [],
+            source_ids: validSourceUuids,
           });
           item.apiId = created.id;
         } catch {
