@@ -20,7 +20,7 @@ const methodColors: Record<string, string> = {
 };
 
 export function ApiSpecPage() {
-  const { apiSpec, generateApiEndpoints, isProcessing } = useProjectData();
+  const { apiSpec, userStories, generateApiEndpoints, isProcessing } = useProjectData();
   const { toast } = useToast();
 
   const [search, setSearch] = useState('');
@@ -98,7 +98,7 @@ export function ApiSpecPage() {
             size="sm"
             icon={<Sparkles size={14} />}
             loading={isProcessing.generateApi}
-            onClick={() => generateApiEndpoints([])}
+            onClick={() => generateApiEndpoints(userStories.map((s) => s.id))}
           >
             Generate specification
           </Button>

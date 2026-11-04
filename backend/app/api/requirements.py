@@ -43,18 +43,30 @@ async def upload_requirements(
     except (UploadValidationError, DocumentParseError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    extracted = extract_requirements(document.text)
+    # Query existing requirements for this project to support idempotent re-upload
+    existing_stmt = select(Requirement).where(Requirement.project_id == project_id)
+    existing_res = await session.execute(existing_stmt)
+    all_existing = list(existing_res.scalars().all())
+    doc_name = Path(document.filename or "").name
+    same_doc_existing = {r.requirement_key: r for r in all_existing if r.source_document == doc_name}
+
+    max_idx = 0
+    for r in all_existing:
+        if r.requirement_key.startswith("REQ-"):
+            try:
+                max_idx = max(max_idx, int(r.requirement_key.split("-")[1]))
+            except (ValueError, IndexError):
+                pass
+
+    start_index = 1 if same_doc_existing or not all_existing else max_idx + 1
+    extracted = extract_requirements(document.text, start_index=start_index)
     if not extracted:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="No requirement statements were found in the uploaded document.",
         )
     settings = get_settings()
-
-    # Query existing requirements for this project to support idempotent re-upload
-    existing_stmt = select(Requirement).where(Requirement.project_id == project_id)
-    existing_res = await session.execute(existing_stmt)
-    existing_map = {r.requirement_key: r for r in existing_res.scalars().all()}
+    existing_map = {r.requirement_key: r for r in all_existing}
 
     requirements: list[Requirement] = []
     chunks: list[RequirementChunk] = []
