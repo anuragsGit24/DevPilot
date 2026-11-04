@@ -1,0 +1,44 @@
+name: Terraform
+
+# Only runs when Terraform files change. Never applies automatically.
+on:
+  pull_request:
+    paths: ["infra/**", "terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", "terraform/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Terraform fmt and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.9"
+
+      - name: Find Terraform root
+        id: root
+        run: |
+          for d in infra terraform; do
+            if ls "$d"/*.tf >/dev/null 2>&1; then echo "dir=$d" >> "$GITHUB_OUTPUT"; exit 0; fi
+          done
+          echo "No .tf files found at infra/ or terraform/"; exit 1
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+        working-directory: ${{ steps.root.outputs.dir }}
+
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false
+        working-directory: ${{ steps.root.outputs.dir }}
+
+      - name: Validate
+        run: terraform validate
+        working-directory: ${{ steps.root.outputs.dir }}

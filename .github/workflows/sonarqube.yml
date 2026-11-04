@@ -1,0 +1,68 @@
+name: SonarQube
+
+# Reusable workflow, called from pipeline.yml after CI.
+# It does NOT re-run tests or builds: it downloads the coverage reports that CI
+# already produced in the same pipeline run, then scans.
+# Needs the SONAR_TOKEN repository secret (skipped with a warning if missing,
+# e.g. on pull requests from forks).
+
+on:
+  workflow_call:
+    inputs:
+      wait_for_quality_gate:
+        description: Fail this job if the Sonar quality gate fails
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0 # Sonar needs full history for new-code detection and blame
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: devpilot-frontend/coverage
+
+      - name: Check Sonar token
+        id: token
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::SONAR_TOKEN is not available (missing secret or fork PR). Skipping Sonar scan."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Scan with SonarQube
+        if: steps.token.outputs.present == 'true'
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=anuragsgit24
+            -Dsonar.projectKey=anuragsGit24_DevPilot
+            -Dsonar.python.version=3.11
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/coverage/**
+            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+            -Dsonar.javascript.lcov.reportPaths=devpilot-frontend/coverage/lcov.info
+            -Dsonar.qualitygate.wait=${{ inputs.wait_for_quality_gate }}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "review-plan": {
+      "source": "microsoft/vscode-team-kit",
+      "sourceType": "github",
+      "skillPath": "review-plan/skills/review-plan/SKILL.md",
+      "computedHash": "4c2db24a5f820869cc3092032a3aaf2213aec64edf2368aaabc4a140e1eec4db"
+    }
+  }
+}
