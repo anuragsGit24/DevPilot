@@ -297,7 +297,7 @@ class WorkItemCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     status: str | None = Field(default=None, max_length=80)
     payload: dict = Field(default_factory=dict)
-    source_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
     parent_id: uuid.UUID | None = None
 
 
@@ -305,7 +305,7 @@ class WorkItemUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     status: str | None = Field(default=None, max_length=80)
     payload: dict | None = None
-    source_ids: list[uuid.UUID] | None = None
+    source_ids: list[str] | None = None
     parent_id: uuid.UUID | None = None
 
 
