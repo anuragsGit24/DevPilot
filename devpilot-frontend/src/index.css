@@ -369,3 +369,41 @@ html:not([data-theme='dark']):not(.dark) .dashboard-attention__item {
 @media (max-height: 650px) {
   .assistant-page { min-height: 400px; }
 }
+
+/* Sidebar uses its own semantic colors in both themes. */
+.workspace-sidebar {
+  --sidebar-bg: #f5f6f8;
+  --sidebar-text: #536171;
+  --sidebar-heading: #687584;
+  --sidebar-strong: #202833;
+  --sidebar-hover: #e9ecf0;
+  --sidebar-active: #e3e7ed;
+  --sidebar-line: #dfe3e9;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  border-right: 1px solid var(--sidebar-line);
+}
+:is(html[data-theme='dark'], html.dark) .workspace-sidebar {
+  --sidebar-bg: #17191d;
+  --sidebar-text: #a2a9b3;
+  --sidebar-heading: #8e97a3;
+  --sidebar-strong: #edf0f4;
+  --sidebar-hover: #22252b;
+  --sidebar-active: #282c33;
+  --sidebar-line: #292d34;
+}
+.sidebar-brand { border-bottom: 1px solid var(--sidebar-line); }
+.sidebar-wordmark { color: var(--sidebar-strong); font-size: 16px; font-weight: 650; letter-spacing: -.045em; }
+.sidebar-link { display: flex; align-items: center; gap: 10px; min-height: 35px; padding: 7px 10px; border-radius: 5px; font-size: 13px; line-height: 20px; font-weight: 450; color: var(--sidebar-text); transition: color 150ms ease, background-color 150ms ease; }
+.sidebar-link svg { flex-shrink: 0; opacity: .85; }
+.sidebar-link:hover, .sidebar-icon-button:hover, .sidebar-profile:hover { color: var(--sidebar-strong); background: var(--sidebar-hover); }
+.sidebar-link.is-active { color: var(--sidebar-strong); background: var(--sidebar-active); font-weight: 550; box-shadow: inset 2px 0 0 #8d9bb0; }
+.sidebar-link.is-active svg { opacity: 1; }
+.sidebar-link.is-collapsed { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar-section { margin-top: 25px; }
+.sidebar-section-label { color: var(--sidebar-heading); font-size: 10px; line-height: 16px; font-weight: 550; letter-spacing: .055em; text-transform: uppercase; padding: 0 10px; margin-bottom: 8px; }
+.sidebar-icon-button { align-items: center; justify-content: center; padding: 5px; border-radius: 4px; color: var(--sidebar-text); }
+.sidebar-footer { border-top: 1px solid var(--sidebar-line); }
+.sidebar-profile { color: var(--sidebar-text); transition: background-color 150ms ease; }
+.sidebar-profile-name { color: var(--sidebar-strong); }
+.sidebar-profile-role { color: var(--sidebar-heading); }

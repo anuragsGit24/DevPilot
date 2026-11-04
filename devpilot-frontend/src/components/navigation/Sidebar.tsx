@@ -1,240 +1,92 @@
-import React from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import type { ElementType } from 'react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/app/providers/AuthProvider';
-import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
+import { useProjectData } from '@/app/providers/ProjectDataProvider';
+import { ROLE_LABELS } from '@/types/permissions';
+import { Avatar } from '@/components/ui/Misc';
 import {
   LayoutDashboard, FolderOpen, FileText, Layers, Calendar,
   Code2, BarChart3, BookOpen, Users, Shield, Settings2, GitBranch,
-  ChevronLeft, ChevronRight, Sparkles, LogOut, Settings,
-  Moon, Download,
+  PanelLeftClose, PanelLeftOpen, MessageSquare, LogOut, Settings,
+  SlidersHorizontal, Download,
 } from 'lucide-react';
-import { useProjectData } from '@/app/providers/ProjectDataProvider';
-import { Avatar } from '@/components/ui/Misc';
 
-// ============================================================
-// Sidebar Component
-// ============================================================
+type NavItem = { label: string; path: string; icon: ElementType; exact?: boolean };
 
-const ICONS: Record<string, React.ElementType> = {
-  LayoutDashboard, FolderOpen, FileText, Layers, Calendar,
-  Code2, BarChart3, BookOpen, Users, Shield, Settings2,
-  GitBranch, Download, Sparkles,
-};
-
-interface SidebarNavItemProps {
-  icon: string;
-  label: string;
-  path: string;
-  collapsed: boolean;
-  exact?: boolean;
-}
-
-function SidebarNavItem({ icon, label, path, collapsed, exact }: SidebarNavItemProps) {
-  const Icon = ICONS[icon] ?? LayoutDashboard;
+function SidebarNavItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const Icon = item.icon;
   return (
-    <NavLink
-      to={path}
-      end={exact}
-      className={({ isActive }) =>
-        cn(
-          'flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors duration-150 group',
-          isActive
-            ? 'bg-white/10 text-white'
-            : 'text-slate-300 hover:bg-navy-700 hover:text-white',
-          collapsed && 'justify-center px-2',
-        )
-      }
-      title={collapsed ? label : undefined}
-    >
-      <Icon className="w-4.5 h-4.5 flex-shrink-0" size={18} />
-      {!collapsed && <span className="truncate">{label}</span>}
+    <NavLink to={item.path} end={item.exact} title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      className={({ isActive }) => cn('sidebar-link', isActive && 'is-active', collapsed && 'is-collapsed')}>
+      <Icon size={17} strokeWidth={1.7} className="shrink-0" />
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   );
 }
 
-interface SidebarProps {
-  collapsed: boolean;
-  onToggle: () => void;
-}
-
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { user, logout } = useAuth();
-  const { projects, activeProject: selectedProject } = useProjectData();
+  const { projects } = useProjectData();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const projectParam = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
-  const routeProjectId = projectParam === 'new' ? undefined : projectParam;
+  const projectId = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
+  const project = projects.find((item) => item.id === projectId);
 
-  // Determine active project for contextual nav
-  const activeProjectId = routeProjectId ?? (selectedProject.id || projects[0]?.id);
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0];
-
-  // Project-scoped nav items
-  const projectNavItems = [
-    { icon: 'LayoutDashboard', label: 'Overview', path: `/projects/${activeProjectId}/overview` },
-    { icon: 'FileText', label: 'Requirements', path: `/projects/${activeProjectId}/requirements` },
-    { icon: 'Layers', label: 'Artifacts', path: `/projects/${activeProjectId}/artifacts` },
-    { icon: 'Calendar', label: 'Sprints', path: `/projects/${activeProjectId}/sprints` },
-    { icon: 'GitBranch', label: 'Traceability', path: `/projects/${activeProjectId}/traceability` },
-    { icon: 'Download', label: 'Export Hub', path: `/projects/${activeProjectId}/export` },
-    { icon: 'BarChart3', label: 'Evaluations', path: `/projects/${activeProjectId}/evaluations` },
-    { icon: 'Sparkles', label: 'AI Assistant', path: `/projects/${activeProjectId}/assistant` },
+  const mainItems: NavItem[] = [
+    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, exact: true },
+    { label: 'Projects', path: '/projects', icon: FolderOpen, exact: true },
+  ];
+  const projectItems: NavItem[] = project ? [
+    { label: 'Overview', path: `/projects/${project.id}/overview`, icon: LayoutDashboard },
+    { label: 'Requirements', path: `/projects/${project.id}/requirements`, icon: FileText },
+    { label: 'Artifacts', path: `/projects/${project.id}/artifacts`, icon: Layers },
+    { label: 'Sprints', path: `/projects/${project.id}/sprints`, icon: Calendar },
+    { label: 'Traceability', path: `/projects/${project.id}/traceability`, icon: GitBranch },
+    { label: 'Exports', path: `/projects/${project.id}/export`, icon: Download },
+    { label: 'Evaluations', path: `/projects/${project.id}/evaluations`, icon: BarChart3 },
+    { label: 'Assistant', path: `/projects/${project.id}/assistant`, icon: MessageSquare },
+  ] : [];
+  const resourceItems: NavItem[] = [
+    { label: 'Prompt library', path: '/prompts', icon: Code2 },
+    { label: 'Case study', path: '/case-study', icon: BookOpen },
+  ];
+  const adminItems: NavItem[] = [
+    { label: 'Users', path: '/admin/users', icon: Users },
+    { label: 'Audit log', path: '/admin/audit-logs', icon: Shield },
+    { label: 'Configuration', path: '/admin/configuration', icon: Settings2 },
   ];
 
-  const isInProject = Boolean(routeProjectId && projects.some((project) => project.id === routeProjectId));
+  function section(label: string, items: NavItem[]) {
+    return <section className="sidebar-section" aria-label={label}>
+      {!collapsed && <h2 className="sidebar-section-label truncate" title={label}>{label}</h2>}
+      <div className="space-y-0.5">{items.map((item) => <SidebarNavItem key={item.path} item={item} collapsed={collapsed} />)}</div>
+    </section>;
+  }
 
   return (
-    <nav
-      className={cn(
-        'relative flex shrink-0 flex-col h-full bg-navy-900 border-r border-navy-800 transition-all duration-200',
-        collapsed ? 'w-[60px]' : 'w-[224px]',
-      )}
-      aria-label="Main navigation"
-    >
-      {/* Logo */}
-      <div className={cn('flex items-center h-12 border-b border-navy-800 flex-shrink-0', collapsed ? 'justify-center px-2' : 'px-4 gap-3')}>
-        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-          <Code2 className="text-white" size={18} />
-        </div>
-        {!collapsed && (
-          <div>
-            <span className="text-white font-semibold text-sm tracking-tight">DevPilot</span>
-            <div className="text-navy-300 text-2xs font-medium">PROJECT WORKSPACE</div>
-          </div>
-        )}
+    <nav className={cn('workspace-sidebar flex shrink-0 flex-col h-full transition-[width] duration-200', collapsed ? 'w-[60px]' : 'w-[224px]')} aria-label="Main navigation">
+      <div className={cn('sidebar-brand flex h-12 shrink-0 items-center', collapsed ? 'justify-center px-2' : 'justify-between px-5')}>
+        <Link to="/dashboard" aria-label="DevPilot home" className="sidebar-wordmark">{collapsed ? 'DP' : 'DevPilot'}</Link>
+        {!collapsed && <button type="button" onClick={onToggle} className="sidebar-icon-button hidden md:flex" aria-label="Collapse sidebar" title="Collapse sidebar"><PanelLeftClose size={16} strokeWidth={1.6} /></button>}
       </div>
 
-      {!collapsed && projects.length > 0 && <div className="px-3 pt-4 pb-2">
-        <label htmlFor="workspace-project" className="block text-[10px] uppercase tracking-wider text-slate-400 mb-2">Workspace</label>
-        <select id="workspace-project" aria-label="Switch project" value={activeProjectId || ''} onChange={(event) => navigate(`/projects/${event.target.value}/overview`)} className="w-full rounded-md border border-navy-700 bg-navy-800 px-2 py-2 text-xs text-slate-200">
-          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </select>
-      </div>}
-      {/* Nav Items */}
-      <div className="flex-1 overflow-y-auto py-4 space-y-1 px-2 scrollbar-none">
-
-        {/* Main */}
-        <SidebarNavItem icon="LayoutDashboard" label="Dashboard" path="/dashboard" collapsed={collapsed} exact />
-        <SidebarNavItem icon="FolderOpen" label="Projects" path="/projects" collapsed={collapsed} />
-
-        {/* Project Context — only when inside a project */}
-        {isInProject && (
-          <>
-            {!collapsed && (
-              <div className="mt-4 mb-1 px-1">
-                <div className="text-2xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                  {activeProject?.name
-                    ? activeProject.name.length > 22 ? activeProject.name.slice(0, 22) + '…' : activeProject.name
-                    : 'Workspace'}
-                </div>
-              </div>
-            )}
-            {collapsed && <div className="border-t border-navy-800 my-2" />}
-            {projectNavItems.map((item) => {
-              const Icon = ICONS[item.icon] ?? Layers;
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors duration-150',
-                      isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-navy-700 hover:text-white',
-                      collapsed && 'justify-center px-2',
-                    )
-                  }
-                  title={collapsed ? item.label : undefined}
-                >
-                  {item.label === 'AI Assistant' ? <Sparkles size={18} /> : <Icon size={18} className="flex-shrink-0" />}
-                  {!collapsed && <span className="truncate">{item.label}</span>}
-                </NavLink>
-              );
-            })}
-          </>
-        )}
-
-        {/* AI & Quality */}
-        <div className="border-t border-navy-800 my-3" />
-        {!collapsed && <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-1">Resources</p>}
-        <SidebarNavItem icon="Code2" label="Prompt Library" path="/prompts" collapsed={collapsed} />
-        <SidebarNavItem icon="BookOpen" label="Case Study" path="/case-study" collapsed={collapsed} />
-
-        {/* Admin — only if admin role */}
-        {user?.role === 'admin' && (
-          <>
-            <div className="border-t border-navy-800 my-3" />
-            {!collapsed && <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-1">Administration</p>}
-            <SidebarNavItem icon="Users" label="User Management" path="/admin/users" collapsed={collapsed} />
-            <SidebarNavItem icon="Shield" label="Audit Logs" path="/admin/audit-logs" collapsed={collapsed} />
-            <SidebarNavItem icon="Settings2" label="Configuration" path="/admin/configuration" collapsed={collapsed} />
-          </>
-        )}
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-5 pb-4">
+        <div className="space-y-0.5">{mainItems.map((item) => <SidebarNavItem key={item.path} item={item} collapsed={collapsed} />)}</div>
+        {project && section(project.name, projectItems)}
+        {section('Resources', resourceItems)}
+        {user?.role === 'admin' && section('Administration', adminItems)}
       </div>
 
-      {/* User section */}
-      <div className="flex-shrink-0 border-t border-navy-800 p-2">
-        {!collapsed ? (
-          <div className="space-y-1">
-            <NavLink
-              to="/settings/profile"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-md text-slate-300 hover:bg-navy-700 hover:text-white text-sm transition-colors"
-            >
-              {user && <Avatar name={user.name} size="sm" />}
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-white truncate">{user?.name}</div>
-                <div className={cn('text-2xs px-1.5 py-0.5 rounded-full font-medium inline-block mt-0.5',
-                  user ? ROLE_COLORS[user.role] : '')}>
-                  {user ? ROLE_LABELS[user.role] : ''}
-                </div>
-              </div>
-              <Settings size={14} className="flex-shrink-0 opacity-50" />
-            </NavLink>
-            <NavLink
-              to="/settings/preferences"
-              className={({ isActive }) => cn(
-                'flex items-center gap-2.5 px-3 py-2 rounded-md text-slate-300 hover:bg-navy-700 hover:text-white text-sm transition-colors',
-                isActive && 'bg-navy-700 text-white',
-              )}
-            >
-              <Moon size={15} />
-              <span>Preferences</span>
-            </NavLink>
-            <button
-              onClick={logout}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-slate-400 hover:bg-red-900/30 hover:text-red-300 text-sm transition-colors"
-            >
-              <LogOut size={16} />
-              <span>Sign out</span>
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-1">
-            {user && (
-              <NavLink to="/settings/profile" title="Settings">
-                <Avatar name={user.name} size="sm" />
-              </NavLink>
-            )}
-            <button
-              onClick={logout}
-              className="p-1.5 rounded-md text-slate-400 hover:text-red-400 transition-colors"
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <LogOut size={14} />
-            </button>
-          </div>
-        )}
+      <div className="sidebar-footer shrink-0 px-3 py-3 space-y-0.5">
+        {collapsed && <button type="button" onClick={onToggle} className="sidebar-link is-collapsed hidden md:flex w-full" aria-label="Expand sidebar" title="Expand sidebar"><PanelLeftOpen size={17} strokeWidth={1.7} /></button>}
+        <SidebarNavItem item={{ label: 'Preferences', path: '/settings/preferences', icon: SlidersHorizontal }} collapsed={collapsed} />
+        <button type="button" onClick={logout} className={cn('sidebar-link w-full', collapsed && 'is-collapsed')} title={collapsed ? 'Sign out' : undefined} aria-label="Sign out"><LogOut size={17} strokeWidth={1.7} />{!collapsed && <span>Sign out</span>}</button>
+        <NavLink to="/settings/profile" className={cn('sidebar-profile flex items-center gap-2.5 rounded-md mt-3 px-2 py-2', collapsed && 'justify-center px-0')} title={collapsed ? user?.name || 'Profile' : undefined} aria-label={collapsed ? 'Profile' : undefined}>
+          {user && <Avatar name={user.name} size="sm" />}
+          {!collapsed && <><div className="min-w-0 flex-1"><div className="sidebar-profile-name truncate text-xs font-medium">{user?.name}</div><div className="sidebar-profile-role text-[11px] mt-0.5">{user ? ROLE_LABELS[user.role] : ''}</div></div><Settings size={14} className="shrink-0 opacity-60" /></>}
+        </NavLink>
       </div>
-
-      {/* Collapse toggle */}
-      <button
-        onClick={onToggle}
-        className="hidden md:flex absolute -right-3 top-[72px] w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors z-10"
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
-      </button>
     </nav>
   );
 }
