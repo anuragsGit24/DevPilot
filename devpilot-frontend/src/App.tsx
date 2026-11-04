@@ -1,4 +1,4 @@
-import React from 'react';
+import { AppErrorBoundary } from '@/components/ui/AppErrorBoundary';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/app/providers/AuthProvider';
 import { ToastProvider } from '@/app/providers/ToastProvider';
@@ -8,17 +8,19 @@ import { AppRoutes } from '@/app/routes';
 
 export function App() {
   return (
-    <BrowserRouter>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <ProjectDataProvider>
-              <AppRoutes />
-            </ProjectDataProvider>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </BrowserRouter>
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <ProjectDataProvider>
+                <AppRoutes />
+              </ProjectDataProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </BrowserRouter>
+    </AppErrorBoundary>
   );
 }
 
