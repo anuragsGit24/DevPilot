@@ -51,12 +51,12 @@ describe('ExportHubPage (Engineer 5)', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Artifact Export & Distribution Hub')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Export artifacts' })).toBeInTheDocument();
     expect(screen.getByText('Markdown Dossier Bundle')).toBeInTheDocument();
     expect(screen.getByText('Gherkin BDD Feature Suite')).toBeInTheDocument();
     expect(screen.getByText('OpenAPI 3.1 Specifications')).toBeInTheDocument();
     expect(screen.getByText('Architecture & Sprint Blueprints')).toBeInTheDocument();
-    expect(screen.getByText('ZIP Archive Package Hierarchy')).toBeInTheDocument();
+    expect(screen.getByText('Archive contents')).toBeInTheDocument();
   });
 
   it('allows toggling format checkboxes and calls api.exportZip on download', async () => {

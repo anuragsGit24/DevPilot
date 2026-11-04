@@ -155,34 +155,15 @@ export function ExportHubPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Hero Header */}
-      <div className="bg-gradient-to-r from-navy-900 via-navy-800 to-blue-900 rounded-2xl p-6 sm:p-8 text-white shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-medium">
-            <FolderArchive size={13} className="text-blue-300" />
-            <span>Engineer 5 Multi-Format Export Center</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Artifact Export & Distribution Hub</h1>
-          <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
-            Export all generated specifications, INVEST user stories, Gherkin test scenarios, OpenAPI 3.1 contracts,
-            and architecture topologies into standardized enterprise packages or an integrated ZIP bundle.
-          </p>
+    <div className="space-y-6 w-full">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-slate-900">Export artifacts</h1>
+          <p className="text-sm text-slate-500 mt-1">Choose the formats to include in your project export.</p>
         </div>
-
-        {/* Primary CTA */}
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <Button
-            variant="primary"
-            size="lg"
-            icon={<Download size={18} />}
-            loading={isExporting}
-            onClick={handleExportZip}
-            className="w-full sm:w-auto shadow-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3"
-          >
-            Download ZIP Bundle ({selectedFormats.length} Formats)
-          </Button>
-        </div>
+        <Button variant="primary" size="sm" icon={<Download size={15} />} loading={isExporting} onClick={handleExportZip}>
+          Download ZIP Bundle
+        </Button>
       </div>
 
       {/* Manifest Stats Card */}
@@ -252,7 +233,7 @@ export function ExportHubPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Configurable Export Packages</h2>
+            <h2 className="text-base font-bold text-slate-900">Export formats</h2>
             <p className="text-xs text-slate-500">Select formats to include in the ZIP bundle or download individual assets</p>
           </div>
           <button
@@ -284,6 +265,7 @@ export function ExportHubPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label="Include markdown"
                   checked={selectedFormats.includes('markdown')}
                   onChange={() => toggleFormat('markdown')}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
@@ -333,6 +315,7 @@ export function ExportHubPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label="Include gherkin"
                   checked={selectedFormats.includes('gherkin')}
                   onChange={() => toggleFormat('gherkin')}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
@@ -384,6 +367,7 @@ export function ExportHubPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label="Include openapi yaml"
                   checked={selectedFormats.includes('openapi_yaml')}
                   onChange={() => toggleFormat('openapi_yaml')}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
@@ -444,6 +428,7 @@ export function ExportHubPage() {
                 </div>
                 <input
                   type="checkbox"
+                  aria-label="Include architecture"
                   checked={selectedFormats.includes('architecture')}
                   onChange={() => toggleFormat('architecture')}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
@@ -458,7 +443,7 @@ export function ExportHubPage() {
               </p>
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                 <span className="text-2xs font-mono text-slate-400">Target: Mermaid.js & Sprint Plan</span>
-                <Link to={`/projects/${effectiveProjectId}/artifacts?tab=architecture`}>
+                <Link to={`/projects/${effectiveProjectId}/artifacts?tab=architecture`} onClick={(event) => event.stopPropagation()}>
                   <Button variant="ghost" size="xs" iconRight={<ExternalLink size={12} />}>
                     View Blueprint
                   </Button>
@@ -474,7 +459,7 @@ export function ExportHubPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Archive size={16} className="text-slate-600" />
-            <h3 className="text-sm font-bold text-slate-900">ZIP Archive Package Hierarchy</h3>
+            <h3 className="text-sm font-bold text-slate-900">Archive contents</h3>
           </div>
         </CardHeader>
         <CardBody className="p-0">

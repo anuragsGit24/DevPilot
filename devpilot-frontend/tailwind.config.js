@@ -7,6 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        slate: { 400: '#64748b' },
         navy: {
           50:  '#e8eef7',
           100: '#c5d4e9',
@@ -20,16 +21,9 @@ export default {
           900: '#0A1628',
         },
         blue: {
-          50:  '#e0f7ff',
-          100: '#b3ecff',
-          200: '#80dfff',
-          300: '#4dd2ff',
-          400: '#26c7ff',
-          500: '#0093CC',
-          600: '#00AEEF',
-          700: '#007ab3',
-          800: '#005c87',
-          900: '#003d5c',
+          50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe',
+          300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6',
+          600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a',
         },
       },
       fontFamily: {
@@ -41,14 +35,14 @@ export default {
       },
       boxShadow: {
         'sidebar': '4px 0 16px rgba(0,0,0,0.15)',
-        'card': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
-        'card-hover': '0 4px 12px rgba(0,0,0,0.12)',
+        'card': '0 1px 2px rgba(15,23,42,0.03)',
+        'card-hover': '0 4px 16px rgba(15,23,42,0.06)',
         'dialog': '0 20px 60px rgba(0,0,0,0.25)',
       },
       borderRadius: {
-        'lg': '0.625rem',
-        'xl': '0.875rem',
-        '2xl': '1.125rem',
+        'lg': '0.5rem',
+        'xl': '0.75rem',
+        '2xl': '1rem',
       },
       keyframes: {
         'slide-in-right': {

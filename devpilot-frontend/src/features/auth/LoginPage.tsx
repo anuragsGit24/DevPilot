@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
-import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
+import { ROLE_LABELS } from '@/types/permissions';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { Lock, Mail, Eye, EyeOff, UserCheck, AlertCircle, ArrowRight, ShieldCheck, UserPlus } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck, UserPlus } from 'lucide-react';
 import type { UserRole } from '@/types/domain';
 
 const DEMO_USERS = [
@@ -17,7 +17,7 @@ const DEMO_USERS = [
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, register, isDemoMode } = useAuth();
+  const { login, register } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>('business_analyst');
@@ -65,22 +65,22 @@ export function LoginPage() {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-dialog border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-card border border-slate-200 overflow-hidden">
       {/* Header */}
-      <div className="px-8 pt-8 pb-6 border-b border-slate-100 text-center">
+      <div className="px-6 sm:px-8 pt-8 pb-6 border-b border-slate-100">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          {isRegistering ? 'Create DevPilot Account' : 'Welcome to DevPilot'}
+          {isRegistering ? 'Create your account' : 'Sign in to DevPilot'}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
           {isRegistering
-            ? 'Provision your user profile with role-based access'
-            : 'Enterprise AI specification & requirement engineering'}
+            ? 'Set up your profile to join your workspace.'
+            : 'Continue to your development workspace.'}
         </p>
       </div>
 
-      <div className="p-8 space-y-6">
+      <div className="p-6 sm:p-8 space-y-6">
         {/* Quick Persona Switcher Bar (only when in login mode) */}
-        {!isRegistering && (
+        {!isRegistering && import.meta.env.DEV && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider">
               <span>Select Demo Persona</span>
@@ -143,18 +143,21 @@ export function LoginPage() {
           )}
 
           <Input
-            label="Corporate Email Address"
+            label="Email address"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
             icon={<Mail size={16} />}
-            placeholder="e.g. pm@devpilot.demo"
+            placeholder="you@company.com"
           />
 
           <div className="space-y-1">
             <Input
               label="Password"
+              autoComplete={isRegistering ? 'new-password' : 'current-password'}
+              minLength={isRegistering ? 8 : undefined}
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -189,7 +192,7 @@ export function LoginPage() {
             loading={loading}
             iconRight={isRegistering ? <UserPlus size={16} /> : <ArrowRight size={16} />}
           >
-            {isRegistering ? 'Register & Sign In' : 'Authenticate Session'}
+            {isRegistering ? 'Create account' : 'Sign in'}
           </Button>
 
           <div className="text-center pt-2">
@@ -210,12 +213,12 @@ export function LoginPage() {
       </div>
 
       {/* Footer Info */}
-      <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+      <div className="px-6 sm:px-8 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
         <div className="flex items-center gap-1.5">
           <ShieldCheck size={14} className="text-emerald-600" />
-          <span>Real Session Auth & RBAC Active</span>
+          <span>Secure sign-in</span>
         </div>
-        <span className="font-mono text-2xs text-slate-400">v2.0-secure</span>
+        <span className="font-mono text-2xs text-slate-400">DevPilot</span>
       </div>
     </div>
   );

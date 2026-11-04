@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
@@ -38,9 +38,9 @@ function SidebarNavItem({ icon, label, path, collapsed, exact }: SidebarNavItemP
       end={exact}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 group',
+          'flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors duration-150 group',
           isActive
-            ? 'bg-blue-600 text-white'
+            ? 'bg-white/10 text-white'
             : 'text-slate-300 hover:bg-navy-700 hover:text-white',
           collapsed && 'justify-center px-2',
         )
@@ -60,15 +60,19 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, logout } = useAuth();
-  const { projects } = useProjectData();
-  const params = useParams();
+  const { projects, activeProject: selectedProject } = useProjectData();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const projectParam = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
+  const routeProjectId = projectParam === 'new' ? undefined : projectParam;
 
   // Determine active project for contextual nav
-  const activeProjectId = params.projectId ?? projects[0]?.id;
+  const activeProjectId = routeProjectId ?? (selectedProject.id || projects[0]?.id);
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0];
 
   // Project-scoped nav items
   const projectNavItems = [
+    { icon: 'LayoutDashboard', label: 'Overview', path: `/projects/${activeProjectId}/overview` },
     { icon: 'FileText', label: 'Requirements', path: `/projects/${activeProjectId}/requirements` },
     { icon: 'Layers', label: 'Artifacts', path: `/projects/${activeProjectId}/artifacts` },
     { icon: 'Calendar', label: 'Sprints', path: `/projects/${activeProjectId}/sprints` },
@@ -78,29 +82,35 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     { icon: 'Sparkles', label: 'AI Assistant', path: `/projects/${activeProjectId}/assistant` },
   ];
 
-  const isInProject = Boolean(params.projectId);
+  const isInProject = Boolean(routeProjectId && projects.some((project) => project.id === routeProjectId));
 
   return (
     <nav
       className={cn(
-        'flex flex-col h-screen bg-navy-900 border-r border-navy-800 transition-all duration-300',
-        collapsed ? 'w-[68px]' : 'w-64',
+        'relative flex shrink-0 flex-col h-full bg-navy-900 border-r border-navy-800 transition-all duration-200',
+        collapsed ? 'w-[60px]' : 'w-[224px]',
       )}
       aria-label="Main navigation"
     >
       {/* Logo */}
-      <div className={cn('flex items-center h-[60px] border-b border-navy-800 flex-shrink-0', collapsed ? 'justify-center px-2' : 'px-4 gap-3')}>
+      <div className={cn('flex items-center h-12 border-b border-navy-800 flex-shrink-0', collapsed ? 'justify-center px-2' : 'px-4 gap-3')}>
         <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-          <Sparkles className="w-4.5 h-4.5 text-white" size={18} />
+          <Code2 className="text-white" size={18} />
         </div>
         {!collapsed && (
           <div>
-            <span className="text-white font-bold text-base tracking-tight">DevPilot</span>
-            <div className="text-navy-300 text-2xs font-medium">AI SDLC Co-Pilot</div>
+            <span className="text-white font-semibold text-sm tracking-tight">DevPilot</span>
+            <div className="text-navy-300 text-2xs font-medium">PROJECT WORKSPACE</div>
           </div>
         )}
       </div>
 
+      {!collapsed && projects.length > 0 && <div className="px-3 pt-4 pb-2">
+        <label htmlFor="workspace-project" className="block text-[10px] uppercase tracking-wider text-slate-400 mb-2">Workspace</label>
+        <select id="workspace-project" aria-label="Switch project" value={activeProjectId || ''} onChange={(event) => navigate(`/projects/${event.target.value}/overview`)} className="w-full rounded-md border border-navy-700 bg-navy-800 px-2 py-2 text-xs text-slate-200">
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </select>
+      </div>}
       {/* Nav Items */}
       <div className="flex-1 overflow-y-auto py-4 space-y-1 px-2 scrollbar-none">
 
@@ -113,7 +123,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <>
             {!collapsed && (
               <div className="mt-4 mb-1 px-1">
-                <div className="text-2xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                <div className="text-2xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                   {activeProject?.name
                     ? activeProject.name.length > 22 ? activeProject.name.slice(0, 22) + '…' : activeProject.name
                     : 'Workspace'}
@@ -129,8 +139,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   to={item.path}
                   className={({ isActive }) =>
                     cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150',
-                      isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-navy-700 hover:text-white',
+                      'flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors duration-150',
+                      isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-navy-700 hover:text-white',
                       collapsed && 'justify-center px-2',
                     )
                   }
@@ -146,7 +156,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         {/* AI & Quality */}
         <div className="border-t border-navy-800 my-3" />
-        {!collapsed && <p className="text-2xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-1">AI & Quality</p>}
+        {!collapsed && <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-1">Resources</p>}
         <SidebarNavItem icon="Code2" label="Prompt Library" path="/prompts" collapsed={collapsed} />
         <SidebarNavItem icon="BookOpen" label="Case Study" path="/case-study" collapsed={collapsed} />
 
@@ -154,7 +164,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {user?.role === 'admin' && (
           <>
             <div className="border-t border-navy-800 my-3" />
-            {!collapsed && <p className="text-2xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-1">Administration</p>}
+            {!collapsed && <p className="text-2xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-1">Administration</p>}
             <SidebarNavItem icon="Users" label="User Management" path="/admin/users" collapsed={collapsed} />
             <SidebarNavItem icon="Shield" label="Audit Logs" path="/admin/audit-logs" collapsed={collapsed} />
             <SidebarNavItem icon="Settings2" label="Configuration" path="/admin/configuration" collapsed={collapsed} />
@@ -220,7 +230,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Collapse toggle */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-[72px] w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors z-10"
+        className="hidden md:flex absolute -right-3 top-[72px] w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors z-10"
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
