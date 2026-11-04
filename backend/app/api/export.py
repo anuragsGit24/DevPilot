@@ -127,7 +127,7 @@ async def export_project_zip(
                 latest_versions_by_type[type_str] = latest_ver.payload
 
     # 3. Fetch Work Items for manual or persistent stories, criteria, tests, architecture, sprints
-    wi_stmt = select(WorkItem).where(WorkItem.project_id == project_id)
+    wi_stmt = select(WorkItem).where(WorkItem.project_id == project_id, WorkItem.record_type != "assistant_conversation")
     wi_res = await session.execute(wi_stmt)
     all_work_items = wi_res.scalars().all()
 

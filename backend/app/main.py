@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     architecture,
+    assistant,
     artifacts,
     audit,
     auth,
@@ -45,6 +46,7 @@ app.include_router(projects.router, prefix="/api/v1")
 app.include_router(artifacts.router, prefix="/api/v1")
 app.include_router(work_items.router, prefix="/api/v1")
 app.include_router(requirements.router, prefix="/api/v1")
+app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(architecture.router, prefix="/api/v1")
 app.include_router(sprints.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
