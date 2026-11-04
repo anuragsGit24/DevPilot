@@ -39,8 +39,8 @@ export function ProjectLayout() {
 
   const tabs = [
     { id: 'overview', label: 'Overview', path: `/projects/${project.id}/overview`, icon: Layers },
-    { id: 'requirements', label: 'Requirements', path: `/projects/${project.id}/requirements`, count: project.requirementCount, icon: FileText },
-    { id: 'artifacts', label: 'Artifacts', path: `/projects/${project.id}/artifacts`, count: project.artifactCount, icon: Layers },
+    { id: 'requirements', label: 'Requirements', path: `/projects/${project.id}/requirements`, count: requirements.length || project.requirementCount, icon: FileText },
+    { id: 'artifacts', label: 'Artifacts', path: `/projects/${project.id}/artifacts`, count: (userStories.length + testCases.length) || project.artifactCount, icon: Layers },
     { id: 'sprints', label: 'Sprint Planning', path: `/projects/${project.id}/sprints`, icon: Calendar },
     { id: 'evaluations', label: 'Evaluations', path: `/projects/${project.id}/evaluations`, icon: BarChart3 },
     { id: 'traceability', label: 'Traceability', path: `/projects/${project.id}/traceability`, icon: GitBranch },
