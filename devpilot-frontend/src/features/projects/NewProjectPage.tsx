@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/app/providers/AuthProvider';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { ArrowLeft, Check, FolderPlus, Upload, Shield } from 'lucide-react';
+import { ArrowLeft, Check, FolderPlus, Upload } from 'lucide-react';
 import { useToast } from '@/app/providers/ToastProvider';
 
 export function NewProjectPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { createProject, uploadRequirementsFile } = useProjectData();
   const { toast } = useToast();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [tagsInput, setTagsInput] = useState('banking, mobile, retail');
+  const [tagsInput, setTagsInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,15 +32,20 @@ export function NewProjectPage() {
         .filter(Boolean);
 
       const newProj = await createProject({
-        name,
+        name: name.trim(),
         description,
         tags,
         status: 'active',
-        createdBy: 'usr-002',
+        createdBy: user?.id || '',
       });
 
       if (selectedFile) {
-        await uploadRequirementsFile(selectedFile, newProj.id);
+        try { await uploadRequirementsFile(selectedFile, newProj.id); }
+        catch (error) {
+          toast({ variant: 'error', title: 'Project created; document upload failed', description: error instanceof Error ? error.message : 'Retry the upload from Requirements.' });
+          navigate(`/projects/${newProj.id}/requirements`);
+          return;
+        }
       }
 
       toast({ variant: 'success', title: 'Project Initialized', description: 'Redirecting to requirements workspace...' });
@@ -70,8 +77,8 @@ export function NewProjectPage() {
               <FolderPlus size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Create Enterprise SDLC Project</h1>
-              <p className="text-xs text-slate-500">Configure new project workspace with optional initial BRD upload</p>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">New project</h1>
+              <p className="text-xs text-slate-500">Set up your project and add an optional requirements document.</p>
             </div>
           </div>
         </CardHeader>
@@ -86,7 +93,7 @@ export function NewProjectPage() {
             />
 
             <Textarea
-              label="Project Scope & Executive Summary"
+              label="Description"
               required
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -95,31 +102,36 @@ export function NewProjectPage() {
             />
 
             <Input
-              label="Project Tags (Comma Separated)"
+              label="Tags"
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               placeholder="e.g. payments, cloud, pci-dss"
-              hint="Tags assist AI categorization and cross-project knowledge indexing"
+              hint="Separate tags with commas."
             />
 
             {/* Optional Document Upload Zone */}
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-slate-700">
-                Initial BRD / PRD Source Document (Optional)
+                Requirements document (optional)
               </label>
               <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-blue-400 transition-colors bg-slate-50/50">
                 <Upload size={24} className="mx-auto text-slate-400 mb-2" />
                 <p className="text-xs font-semibold text-slate-700">
                   {selectedFile ? selectedFile.name : 'Upload PDF, DOCX, or Markdown specification'}
                 </p>
-                <p className="text-2xs text-slate-400 mt-1">Up to 25MB • Automated requirement extraction ready</p>
+                <p className="text-2xs text-slate-400 mt-1">Up to 10 MB · PDF, DOCX, TXT, or Markdown</p>
                 <input
                   type="file"
                   id="brd-file-input"
                   className="hidden"
-                  accept=".pdf,.docx,.doc,.txt,.md"
+                  accept=".pdf,.docx,.txt,.md"
                   onChange={(e) => {
-                    if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
+                    const file = e.target.files?.[0];
+                    if (file && file.size > 10 * 1024 * 1024) {
+                      toast({ variant: 'error', title: 'File is too large', description: 'Choose a file under 10 MB.' });
+                      e.target.value = '';
+                      setSelectedFile(null);
+                    } else if (file) setSelectedFile(file);
                   }}
                 />
                 <Button
@@ -134,18 +146,12 @@ export function NewProjectPage() {
               </div>
             </div>
 
-            {/* Compliance Badge Note */}
-            <div className="flex items-center gap-2 p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-800">
-              <Shield size={16} className="text-blue-600 flex-shrink-0" />
-              <span>Project will inherit default Barclays SDLC governance gates and role-based policies.</span>
-            </div>
-
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
               <Link to="/projects">
                 <Button variant="secondary" type="button">Cancel</Button>
               </Link>
               <Button type="submit" variant="primary" loading={loading} icon={<Check size={16} />}>
-                Initialize Project Workspace
+                Create project
               </Button>
             </div>
           </form>

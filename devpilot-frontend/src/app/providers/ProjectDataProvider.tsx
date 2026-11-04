@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type {
   Project,
@@ -7,24 +8,44 @@ import type {
   AcceptanceCriteria,
   TestCase,
   ApiSpecification,
+  ApiEndpoint,
   ArchitectureRecommendation,
   Sprint,
   CaseStudyComparison,
   ActivityEntry,
   AssistantConversation,
   DashboardSummary,
-  ChatMessage,
   ArtifactStatus,
   RequirementStatus,
-  UserRole,
 } from '@/types/domain';
 import {
   MOCK_CASE_STUDY,
 } from '@/mocks/seed-data/project-retail-banking';
-import { sleep, generateId } from '@/lib/utils';
+import { generateId } from '@/lib/utils';
 import { useToast } from './ToastProvider';
 import { useAuth } from './AuthProvider';
 import { api, type ApiProject, type ApiWorkItem, type ApiNormalizedStoryIn, type ApiSprintPlanResponse, type ApiRequirementsUpload } from '@/lib/api';
+
+function mapApiArtifact(artifact: Awaited<ReturnType<typeof api.getArtifact>>): ApiSpecification {
+  const payload = artifact.current_version?.payload ?? {};
+  const info = (payload.info ?? {}) as Record<string, unknown>;
+  const paths = (payload.paths ?? {}) as Record<string, Record<string, Record<string, unknown>>>;
+  const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const endpoints: ApiEndpoint[] = Object.entries(paths).flatMap(([path, operations]) =>
+    Object.entries(operations).filter(([method]) => methods.includes(method.toUpperCase())).map(([method, operation]) => ({
+      path, method: method.toUpperCase() as ApiEndpoint['method'],
+      summary: String(operation.summary ?? ''), description: String(operation.description ?? ''),
+      tags: Array.isArray(operation.tags) ? operation.tags.map(String) : [],
+      authentication: Boolean(operation.security || payload.security),
+      responses: Object.fromEntries(Object.entries((operation.responses ?? {}) as Record<string, { description?: string }>).map(([code, response]) => [code, { description: response.description ?? '' }])),
+    })));
+  return { id: artifact.id, projectId: artifact.project_id, artifactVersionId: artifact.current_version?.id ?? '',
+    title: String(info.title ?? artifact.title), version: String(info.version ?? '1.0.0'),
+    openApiVersion: String(payload.openapi ?? '3.1.0'), description: String(info.description ?? ''), endpoints,
+    rawYaml: JSON.stringify(payload, null, 2), validationStatus: 'pending', validationFindings: [],
+    status: artifact.status as ArtifactStatus, sourceRequirementIds: artifact.current_version?.source_requirement_ids ?? [],
+    createdAt: artifact.created_at, updatedAt: artifact.updated_at };
+}
 
 function mapAcceptanceCriteriaArtifacts(artifacts: Awaited<ReturnType<typeof api.getArtifact>>[], projectId: string): AcceptanceCriteria[] {
   return artifacts.flatMap((artifact) => {
@@ -119,6 +140,9 @@ async function loadGeneratedArtifacts(projectId: string, artifactType: string) {
 }
 
 interface ProjectDataContextType {
+  workspaceLoading: boolean;
+  workspaceError: string;
+  retryWorkspace: () => void;
   // Projects
   projects: Project[];
   activeProject: Project;
@@ -128,7 +152,6 @@ interface ProjectDataContextType {
 
   // Documents
   documents: SourceDocument[];
-  uploadDocument: (file: { name: string; size: number; type: string }, projectId: string) => Promise<SourceDocument>;
   uploadRequirementsFile: (file: File, projectId: string) => Promise<ApiRequirementsUpload>;
   deleteDocument: (id: string) => void;
 
@@ -137,8 +160,7 @@ interface ProjectDataContextType {
   refreshBackendRequirements: (projectId: string) => Promise<Requirement[]>;
   updateRequirementStatus: (id: string, status: RequirementStatus) => void;
   updateRequirement: (id: string, updates: Partial<Requirement>) => void;
-  addRequirement: (req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => Requirement;
-  extractRequirementsFromDoc: (docId: string) => Promise<Requirement[]>;
+  addRequirement: (req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Requirement>;
 
   // User Stories
   userStories: UserStory[];
@@ -252,6 +274,8 @@ function mapProject(project: ApiProject, counts: { requirements: number; artifac
     ...EMPTY_PROJECT,
     id: project.id,
     name: project.name,
+    status: project.status ?? 'active',
+    tags: project.tags ?? [],
     description: project.description ?? '',
     createdBy: project.created_by,
     createdAt: project.created_at,
@@ -353,9 +377,6 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
         consequences: a.consequences,
       }));
     }
-    if (!payload.provider && payload.provider !== undefined) {
-      payload.provider = payload.provider;
-    }
     if (typeof payload.rationale === 'string' && payload.rationale.includes("Signal scores: {")) {
       payload.rationale = payload.rationale.replace(/Signal scores: \{[^}]+\}\.\s*/g, '');
     }
@@ -397,6 +418,13 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   const { toast } = useToast();
   const { isAuthenticated, isDemoMode, user } = useAuth();
 
+  const { pathname } = useLocation();
+  const routeProjectId = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
+  const requestedProjectId = routeProjectId === 'new' ? undefined : routeProjectId;
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState('');
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const retryWorkspace = useCallback(() => setRefreshVersion((value) => value + 1), []);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
@@ -433,6 +461,8 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!isAuthenticated) {
+      setWorkspaceLoading(false);
+      setWorkspaceError('');
       setProjects([]);
       setActiveProjectId('');
       setDocuments([]);
@@ -449,19 +479,21 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     }
     let cancelled = false;
     async function loadWorkspace() {
+      setWorkspaceLoading(true);
+      setWorkspaceError('');
       try {
         const apiProjects = await api.listProjects();
-        const loaded = await Promise.all(apiProjects.map(async (project) => {
-          const items = await api.listWorkItems(project.id);
-          if (cancelled) return mapProject(project, { requirements: 0, artifacts: 0 });
-          const requirements = items.filter((item) => item.record_type === 'requirement').length;
-          const artifacts = items.filter((item) => !['document', 'requirement'].includes(item.record_type)).length;
-          return mapProject(project, { requirements, artifacts });
-        }));
         const items = await Promise.all(apiProjects.map((project) => api.listWorkItems(project.id)));
+        const loaded = apiProjects.map((project, index) => {
+          const records = items[index];
+          if (cancelled) return mapProject(project, { requirements: 0, artifacts: 0 });
+          const requirements = records.filter((item) => item.record_type === 'requirement').length;
+          const artifacts = records.filter((item) => !['document', 'requirement'].includes(item.record_type)).length;
+          return mapProject(project, { requirements, artifacts });
+        });
         const allItems = items.flat();
         if (cancelled) return;
-        const dashboardProject = apiProjects.find((project) => project.id === activeProjectId) ?? apiProjects[0];
+        const dashboardProject = apiProjects.find((project) => project.id === (requestedProjectId || activeProjectId)) ?? apiProjects[0];
         const dashboardItems = allItems.filter((item) => item.project_id === dashboardProject?.id);
         const countType = (type: string) => dashboardItems.filter((item) => item.record_type === type).length;
         const requirementItems = dashboardItems.filter((item) => item.record_type === 'requirement');
@@ -485,7 +517,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
             id: item.id,
             projectId: item.project_id,
             userId: item.created_by,
-            userName: 'DevPilot demo',
+            userName: item.created_by === user?.id ? user.name : 'Workspace member',
             action: 'updated',
             resourceType: item.record_type,
             resourceId: item.id,
@@ -522,32 +554,25 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         });
         setActivities(demoActivities);
         setCaseStudy(isDemoMode ? MOCK_CASE_STUDY : null);
-        const conversationItem = dashboardItems.find((item) => item.record_type === 'assistant_conversation');
-        if (conversationItem) {
-          const conversation = mapWorkItem<AssistantConversation>(conversationItem);
-          setAssistantConversation({ ...conversation, messages: conversation.messages ?? [] });
-        } else {
-          setAssistantConversation({
-            ...EMPTY_ASSISTANT_CONVERSATION,
-            projectId: dashboardProject?.id ?? '',
-            userId: user?.id ?? '',
-            title: dashboardProject ? `${dashboardProject.name} assistant` : '',
-          });
-        }
+        const conversation = dashboardProject ? await api.getAssistantConversation(dashboardProject.id) : EMPTY_ASSISTANT_CONVERSATION;
+        if (cancelled) return;
+        setAssistantConversation(conversation);
         setProjects(loaded);
-        const targetProjectId = (activeProjectId && loaded.some((p) => p.id === activeProjectId))
-          ? activeProjectId
+        const selectedId = requestedProjectId || activeProjectId;
+        const targetProjectId = (selectedId && loaded.some((p) => p.id === selectedId))
+          ? selectedId
           : loaded[0]?.id ?? '';
         setActiveProjectId(targetProjectId);
 
         const projectItems = allItems.filter((i) => i.project_id === targetProjectId);
         setDocuments(projectItems.filter((i) => i.record_type === 'document').map((i) => mapWorkItem<SourceDocument>(i)));
         const workspaceRequirements = projectItems.filter((i) => i.record_type === 'requirement').map((i) => mapWorkItem<Requirement>(i));
+        let resolvedRequirements = workspaceRequirements;
         if (targetProjectId) {
           try {
             const persistedRequirements = await api.listRequirements(targetProjectId);
             if (!cancelled && persistedRequirements.length > 0) {
-              setRequirements(persistedRequirements.map((record) => ({
+              resolvedRequirements = persistedRequirements.map((record) => ({
                 id: record.requirement_key,
                 apiId: record.id,
                 projectId: record.project_id,
@@ -555,13 +580,15 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
                 description: record.description,
                 category: (record.category ?? 'functional') as Requirement['category'],
                 priority: (record.priority ?? 'should') as Requirement['priority'],
-                status: 'extracted',
+                status: record.status ?? 'extracted',
+                backendSource: 'requirements',
                 sourceDocumentId: record.source_document ?? undefined,
                 sourceDocumentName: record.source_document ?? undefined,
                 sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
                 createdAt: record.created_at,
                 updatedAt: record.updated_at,
-              })));
+              }));
+              setRequirements(resolvedRequirements);
             } else if (!cancelled) {
               setRequirements(workspaceRequirements);
             }
@@ -609,12 +636,14 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
             // Non-fatal artifact fallback
           }
         }
+        if (cancelled) return;
         setUserStories(loadedStories);
         const workItemCriteria = projectItems.filter((i) => i.record_type === 'acceptance_criteria').map((i) => mapWorkItem<AcceptanceCriteria>(i));
         const workItemTests = projectItems.filter((i) => i.record_type === 'test_case').map((i) => mapWorkItem<TestCase>(i));
         let generatedCriteria: AcceptanceCriteria[] = [];
         let generatedTests: TestCase[] = [];
         try {
+          if (!targetProjectId) throw new Error('No selected project');
           const [criteriaArtifacts, testArtifacts] = await Promise.all([
             loadGeneratedArtifacts(targetProjectId, 'acceptance_criteria'),
             loadGeneratedArtifacts(targetProjectId, 'test_cases'),
@@ -624,6 +653,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         } catch {
           // Keep workspace-backed records visible if generated artifact loading is unavailable.
         }
+        if (cancelled) return;
         const mergeById = <T extends { id: string }>(existing: T[], generated: T[]) => {
           const merged = new Map(existing.map((item) => [item.id, item]));
           generated.forEach((item) => merged.set(item.id, item));
@@ -633,20 +663,39 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         setTestCases(mergeById(workItemTests, generatedTests));
         const apiSpecifications = projectItems.filter((i) => i.record_type === 'api_specification');
         const architectures = projectItems.filter((i) => i.record_type === 'architecture');
-        setApiSpec(apiSpecifications[0]
+        const generatedSpecs = targetProjectId ? await loadGeneratedArtifacts(targetProjectId, 'api_specification') : [];
+        if (cancelled) return;
+        setApiSpec(generatedSpecs[0] ? mapApiArtifact(generatedSpecs[0]) : apiSpecifications[0]
           ? mapWorkItem<ApiSpecification>(apiSpecifications[0])
           : {} as ApiSpecification);
         setArchitecture(architectures[0]
           ? mapWorkItem<ArchitectureRecommendation>(architectures[0])
           : {} as ArchitectureRecommendation);
+        setActivities((previous) => [...previous, ...resolvedRequirements.map((item) => ({
+          id: `requirement-${item.id}`, userId: '', userName: 'Workspace member', action: 'updated',
+          entityType: 'requirement' as const, entityTitle: item.title || item.id, timestamp: item.updatedAt,
+        }))].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20));
+        setDashboard((previous) => ({ ...previous,
+          requirementCount: resolvedRequirements.length,
+          confirmedRequirements: resolvedRequirements.filter((item) => item.status === 'confirmed').length,
+          artifactCounts: { ...previous.artifactCounts, user_stories: loadedStories.length,
+            acceptance_criteria: mergeById(workItemCriteria, generatedCriteria).length,
+            test_cases: mergeById(workItemTests, generatedTests).length },
+        }));
+        setProjects((previous) => previous.map((project) => project.id === targetProjectId ? { ...project,
+          requirementCount: resolvedRequirements.length,
+          artifactCount: loadedStories.length + mergeById(workItemCriteria, generatedCriteria).length + mergeById(workItemTests, generatedTests).length,
+        } : project));
         setSprints(projectItems.filter((i) => i.record_type === 'sprint').map((i) => mapWorkItem<Sprint>(i)));
       } catch (error) {
-        if (!cancelled) toast({ variant: 'error', title: 'Unable to load workspace', description: (error as Error).message });
+        if (!cancelled) setWorkspaceError(error instanceof Error ? error.message : 'Unable to load workspace.');
+      } finally {
+        if (!cancelled) setWorkspaceLoading(false);
       }
     }
     void loadWorkspace();
     return () => { cancelled = true; };
-  }, [activeProjectId, isAuthenticated, isDemoMode, toast, user?.id]);
+  }, [activeProjectId, requestedProjectId, refreshVersion, isAuthenticated, isDemoMode, user?.id, user?.name]);
 
   const handleSelectProjectId = useCallback((id: string) => {
     setActiveProjectId(id);
@@ -670,7 +719,8 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       description: record.description,
       category: (record.category ?? 'functional') as Requirement['category'],
       priority: (record.priority ?? 'should') as Requirement['priority'],
-      status: 'extracted',
+      status: record.status ?? 'extracted',
+      backendSource: 'requirements',
       sourceDocumentId: record.source_document ?? undefined,
       sourceDocumentName: record.source_document ?? undefined,
       sourceLocation: record.source_location ? JSON.stringify(record.source_location) : undefined,
@@ -702,14 +752,14 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     void request.catch((error: Error) => {
       toast({ variant: 'error', title: 'Changes could not be saved', description: error.message });
     });
-  }, []);
+  }, [toast]);
 
   const logActivity = useCallback((action: string, entityType: ActivityEntry['entityType'], entityId: string, entityTitle: string) => {
     const newEntry: ActivityEntry = {
       id: generateId('act'),
-      userId: 'usr-001',
-      userName: 'Demo User',
-      userRole: 'admin' as UserRole,
+      userId: user?.id || '',
+      userName: user?.name || 'Workspace member',
+      userRole: user?.role,
       action,
       entityType,
       entityId,
@@ -717,11 +767,11 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       timestamp: new Date().toISOString(),
     };
     setActivities((prev) => [newEntry, ...prev.slice(0, 49)]);
-  }, []);
+  }, [user?.id, user?.name, user?.role]);
 
   // Project operations
   const createProject = useCallback(async (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'memberCount' | 'requirementCount' | 'artifactCount' | 'pendingReviewCount' | 'qualityScore'>) => {
-    const created = await api.createProject({ name: data.name, description: data.description });
+    const created = await api.createProject({ name: data.name.trim(), description: data.description, tags: data.tags, status: data.status });
     const persisted = mapProject(created, { requirements: 0, artifacts: 0 });
     setProjects((prev) => [persisted, ...prev]);
     setActiveProjectId(persisted.id);
@@ -729,39 +779,17 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const updateProject = useCallback((id: string, updates: Partial<Project>) => {
-    void api.updateProject(id, { name: updates.name, description: updates.description }).then((updated) => {
+    void api.updateProject(id, { name: updates.name, description: updates.description, tags: updates.tags, status: updates.status }).then((updated) => {
       setProjects((prev) => prev.map((project) => project.id === id
         ? { ...project, ...mapProject(updated, { requirements: project.requirementCount, artifacts: project.artifactCount }) }
         : project));
+      toast({ variant: 'success', title: 'Project updated' });
     }).catch((error: Error) => {
       toast({ variant: 'error', title: 'Project could not be updated', description: error.message });
     });
-    toast({ variant: 'info', title: 'Project updated' });
   }, [toast]);
 
   // Documents
-  const uploadDocument = useCallback(async (file: { name: string; size: number; type: string }, projectId: string) => {
-    setIsProcessing((prev) => ({ ...prev, upload: true }));
-    await sleep(800);
-    const newDoc: SourceDocument = {
-      id: generateId('doc'),
-      projectId,
-      filename: file.name,
-      mimeType: file.type || 'application/pdf',
-      sizeBytes: file.size,
-      status: 'extracted',
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: 'usr-003',
-      sectionCount: 4,
-      extractedRequirementCount: 2,
-    };
-    setDocuments((prev) => [newDoc, ...prev]);
-    setIsProcessing((prev) => ({ ...prev, upload: false }));
-    logActivity('Uploaded document', 'document', newDoc.id, newDoc.filename);
-    toast({ variant: 'success', title: 'Document uploaded', description: `Processed ${file.name}` });
-    return newDoc;
-  }, [logActivity, toast]);
-
   const uploadRequirementsFile = useCallback(async (file: File, projectId: string) => {
     setIsProcessing((prev) => ({ ...prev, upload: true }));
     try {
@@ -808,98 +836,33 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [toast]);
 
   // Requirements
-  const updateRequirementStatus = useCallback((id: string, status: RequirementStatus) => {
-    const requirement = requirements.find((item) => item.id === id);
-    if (requirement && getApiId(requirement)) {
-      void api.updateWorkItem(requirement.projectId, getApiId(requirement)!, { status }).catch((error: Error) => {
-        toast({ variant: 'error', title: 'Requirement status could not be saved', description: error.message });
-      });
-    }
-    setRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, status, updatedAt: new Date().toISOString() } : r)));
-    logActivity(`Changed status to ${status}`, 'requirement', id, id);
-    toast({ variant: 'success', title: 'Status updated', description: `Requirement ${id} marked as ${status}.` });
-  }, [logActivity, requirements, toast]);
-
   const updateRequirement = useCallback((id: string, updates: Partial<Requirement>) => {
-    const requirement = requirements.find((item) => item.id === id);
-    if (requirement && getApiId(requirement)) {
-      void api.updateWorkItem(requirement.projectId, getApiId(requirement)!, {
-        title: updates.title,
-        payload: { ...requirement, ...updates },
-        status: updates.status,
-      }).catch((error: Error) => {
-        toast({ variant: 'error', title: 'Requirement could not be saved', description: error.message });
-      });
-    }
-    setRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r)));
-    toast({ variant: 'info', title: 'Requirement saved' });
-  }, [requirements, toast]);
+    const item = requirements.find((row) => row.id === id);
+    if (!item?.apiId) return;
+    const canonical = item.backendSource === 'requirements';
+    const request = canonical
+      ? api.updateRequirement(item.projectId, item.apiId, updates)
+      : api.updateWorkItem(item.projectId, item.apiId, { title: updates.title, status: updates.status, payload: { ...item, ...updates } });
+    void request.then(() => {
+      setRequirements((previous) => previous.map((row) => row.id === id ? { ...row, ...updates } : row));
+      toast({ variant: 'success', title: 'Requirement saved' });
+      logActivity('updated', 'requirement', id, item.title || id);
+    }).catch((error: Error) => toast({ variant: 'error', title: 'Requirement could not be saved', description: error.message }));
+  }, [requirements, toast, logActivity]);
 
-  const addRequirement = useCallback((req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newReq: Requirement = {
-      ...req,
-      id: generateId('req'),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setRequirements((prev) => [newReq, ...prev]);
-    void api.createWorkItem(req.projectId, {
-      record_type: 'requirement',
-      title: newReq.title ?? 'Requirement',
-      status: newReq.status,
-      payload: newReq as unknown as Record<string, unknown>,
-      source_ids: newReq.sourceDocumentId ? [newReq.sourceDocumentId] : [],
-    }).then((created) => {
-      setRequirements((prev) => prev.map((item) => item.id === newReq.id ? mapWorkItem<Requirement>(created) : item));
-    }).catch((error: Error) => {
-      setRequirements((prev) => prev.filter((item) => item.id !== newReq.id));
-      toast({ variant: 'error', title: 'Requirement could not be created', description: error.message });
-    });
-    logActivity('Added requirement', 'requirement', newReq.id, newReq.title ?? newReq.id);
-    toast({ variant: 'success', title: 'Requirement created', description: newReq.title });
-    return newReq;
-  }, [logActivity, toast]);
+  const updateRequirementStatus = useCallback((id: string, status: RequirementStatus) => {
+    updateRequirement(id, { status });
+  }, [updateRequirement]);
 
-  const extractRequirementsFromDoc = useCallback(async (docId: string) => {
-    setIsProcessing((prev) => ({ ...prev, [`extract_${docId}`]: true }));
-    await sleep(1200);
-    const newReqs: Requirement[] = [
-      {
-        id: generateId('req'),
-        projectId: activeProjectId,
-        sourceDocumentId: docId,
-        sourceSection: 'Section 4.1 - Security Controls',
-        title: 'Hardware-backed Cryptographic Keystore Isolation',
-        description: 'Biometric cryptographic keys must be stored strictly within Apple Secure Enclave or Android KeyStore hardware with zero host-OS plaintext leakage.',
-        category: 'security',
-        priority: 'must',
-        status: 'extracted',
-        confidenceScore: 92,
-        contradictions: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: generateId('req'),
-        projectId: activeProjectId,
-        sourceDocumentId: docId,
-        sourceSection: 'Section 4.4 - Resilience',
-        title: 'Graceful Degradation to PIN Authentication',
-        description: 'When biometric hardware fails, the application must offer PIN fallback within 2 seconds without terminating the ongoing session context.',
-        category: 'functional',
-        priority: 'should',
-        status: 'extracted',
-        confidenceScore: 88,
-        contradictions: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-    setRequirements((prev) => [...newReqs, ...prev]);
-    setIsProcessing((prev) => ({ ...prev, [`extract_${docId}`]: false }));
-    toast({ variant: 'success', title: 'Extraction complete', description: `Identified 2 candidate requirements from document.` });
-    return newReqs;
-  }, [activeProjectId, toast]);
+  const addRequirement = useCallback(async (req: Omit<Requirement, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const created = await api.createRequirement(req.projectId, { requirement_key: `REQ-${Date.now().toString(36).toUpperCase()}`, title: req.title || 'Requirement', description: req.description || '', category: req.category, priority: req.priority, status: req.status });
+    const requirement: Requirement = { ...req, id: created.requirement_key, apiId: created.id,
+      sourceSection: 'Manual entry', backendSource: 'requirements', createdAt: created.created_at, updatedAt: created.updated_at };
+    setRequirements((previous) => [requirement, ...previous]);
+    toast({ variant: 'success', title: 'Requirement created' });
+    logActivity('created', 'requirement', requirement.id, requirement.title || requirement.id);
+    return requirement;
+  }, [toast, logActivity]);
 
   // User Stories
   const updateUserStory = useCallback((id: string, updates: Partial<UserStory>) => {
@@ -1117,12 +1080,24 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [persistItem, toast]);
 
   const generateApiEndpoints = useCallback(async (storyIds: string[]) => {
-    void storyIds;
-    setIsProcessing((prev) => ({ ...prev, generateApi: true }));
-    await sleep(1600);
-    setIsProcessing((prev) => ({ ...prev, generateApi: false }));
-    toast({ variant: 'success', title: 'OpenAPI Spec Synchronized', description: 'Updated endpoints to match latest user stories.' });
-  }, [toast]);
+    if (!activeProjectId) return;
+    setIsProcessing((previous) => ({ ...previous, generateApi: true }));
+    try {
+      const selected = userStories.filter((story) => storyIds.includes(story.id));
+      const artifact = await api.generateApiSpec(activeProjectId, {
+        title: `${activeProject.name} API`,
+        requirement_ids: requirements.flatMap((requirement) => requirement.backendSource === 'requirements' && requirement.apiId ? [requirement.apiId] : []),
+        instructions: selected.length ? `Consider these stories: ${selected.map((story) => story.title).join('; ')}` : undefined,
+      });
+      const detail = artifact.current_version ? artifact : await api.getArtifact(activeProjectId, artifact.id);
+      setApiSpec(mapApiArtifact(detail));
+      toast({ variant: 'success', title: 'API specification generated' });
+    } catch (error) {
+      toast({ variant: 'error', title: 'API generation failed', description: error instanceof Error ? error.message : 'Please retry.' });
+    } finally {
+      setIsProcessing((previous) => ({ ...previous, generateApi: false }));
+    }
+  }, [activeProjectId, activeProject.name, requirements, userStories, toast]);
 
   // Architecture
   const updateArchitecture = useCallback((arch: ArchitectureRecommendation) => {
@@ -1403,117 +1378,21 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
     }
   }, [activeProjectId, toast]);
 
-  // Assistant (Engineer 5: Grounded Contextual Assistant)
+  // Messages and replies are persisted by the project-scoped backend.
   const sendAssistantMessage = useCallback(async (text: string) => {
-    const userMsg: ChatMessage = {
-      id: generateId('msg'),
-      sender: 'user',
-      text,
-      timestamp: new Date().toISOString(),
-    };
-    setAssistantConversation((prev) => ({
-      ...prev,
-      messages: [...(prev.messages ?? []), userMsg],
-      updatedAt: new Date().toISOString(),
-    }));
-
-    setIsProcessing((prev) => ({ ...prev, assistantTyping: true }));
-    await sleep(900);
-
-    const lower = text.toLowerCase();
-    let responseText = '';
-    const citedArtifacts: Array<{ type: string; id: string; title: string }> = [];
-
-    if (lower.includes('requirement') || lower.includes('prd') || lower.includes('brd') || lower.includes('spec')) {
-      const mustCount = requirements.filter((r) => r.priority === 'must').length;
-      const secCount = requirements.filter((r) => r.category === 'security' || (r.category as string) === 'compliance').length;
-      responseText = `### 📋 Project Requirements Dossier: ${activeProject.name || 'Workspace'}\n\n` +
-        `The active workspace contains **${requirements.length} atomic requirements** (${mustCount} categorized as *Must-Have* MoSCoW priority, and ${secCount} focused on security/compliance).\n\n` +
-        `**Key Specifications In Scope:**\n` +
-        requirements.slice(0, 3).map((r) => `- **[${r.id}]** ${r.title || 'Requirement'}: ${r.description ? r.description.slice(0, 100) + '…' : 'Specification defined.'}`).join('\n') +
-        `\n\nAll requirements have been parsed and vectorized into the semantic embedding index for RAG retrieval.`;
-      requirements.slice(0, 3).forEach((r) => citedArtifacts.push({ type: 'requirement', id: r.id, title: r.title || r.id }));
-    } else if (lower.includes('contradict') || lower.includes('conflict') || lower.includes('discrepanc')) {
-      const conflicting = requirements.filter((r) => (r.contradictions?.length ?? 0) > 0 || (r.contradictionWarnings?.length ?? 0) > 0);
-      if (conflicting.length > 0) {
-        responseText = `⚠️ **Potential Specification Contradictions Flagged (${conflicting.length} items):**\n\n` +
-          `Semantic contradiction analysis detected regulatory alignment issues:\n` +
-          conflicting.map((c) => `- **[${c.id}]** ${c.title || 'Requirement'}: ${c.contradictions?.[0]?.description || 'Conflicting security policies detected.'}`).join('\n') +
-          `\n\n*Recommendation:* Review and confirm lockout policies before executing test suites.`;
-        conflicting.slice(0, 2).forEach((c) => citedArtifacts.push({ type: 'requirement', id: c.id, title: c.title || c.id }));
-      } else {
-        responseText = `✅ **Zero Specification Contradictions Found:**\n\nAll ${requirements.length} atomic requirements were verified against semantic constraint graphs with no conflicting clauses detected.`;
-      }
-    } else if (lower.includes('story') || lower.includes('stories') || lower.includes('invest') || lower.includes('backlog')) {
-      const totalPoints = userStories.reduce((acc, s) => acc + (s.storyPoints || 0), 0);
-      responseText = `### 🧩 User Story Portfolio (${userStories.length} Stories | ${totalPoints} Story Points)\n\n` +
-        `Our INVEST evaluation confirms stories are independent, negotiable, valuable, estimable, small, and testable:\n\n` +
-        userStories.slice(0, 3).map((s) => `- **[${s.id}]** ${s.title}: *As a ${s.userRole || s.asA || 'User'}, I want ${s.action || s.iWant || '...'}.* (${s.storyPoints || 3} pts)`).join('\n') +
-        `\n\n*INVEST Score:* **94/100** (Full acceptance criteria coverage with Gherkin scenarios).`;
-      userStories.slice(0, 3).forEach((s) => citedArtifacts.push({ type: 'user_story', id: s.id, title: s.title }));
-    } else if (lower.includes('sprint') || lower.includes('capacity') || lower.includes('velocity')) {
-      const activeSprint = sprints.find((s) => s.status === 'active') || sprints[0];
-      if (activeSprint) {
-        responseText = `### 🏃 Sprint Planning Status: ${activeSprint.name}\n\n` +
-          `- **Status:** \`${activeSprint.status.toUpperCase()}\`\n` +
-          `- **Goal:** ${activeSprint.goal || 'Delivery cycle execution'}\n` +
-          `- **Target Capacity:** ${activeSprint.capacityStoryPoints || activeSprint.targetVelocity || 30} Story Points\n` +
-          `- **Assigned Stories:** ${activeSprint.userStoryIds?.length || 0} stories (${activeSprint.allocatedStoryPoints || activeSprint.totalPoints || 0} pts)\n` +
-          `- **Duration:** ${activeSprint.startDate} to ${activeSprint.endDate}\n\n` +
-          (activeSprint.warnings && activeSprint.warnings.length > 0 ? `⚠️ **Warnings:** ${activeSprint.warnings.join('; ')}` : `✅ Capacity is well-balanced within team velocity constraints.`);
-        citedArtifacts.push({ type: 'sprint', id: activeSprint.id, title: activeSprint.name });
-      } else {
-        responseText = `There are currently no active sprints scheduled. Use the Sprint Planning Board to run automated capacity packing and topological sort.`;
-      }
-    } else if (lower.includes('architecture') || lower.includes('pattern') || lower.includes('database') || lower.includes('tech stack')) {
-      const comps = architecture?.components ?? [];
-      const dbs = architecture?.dataStores ?? architecture?.data_stores ?? [];
-      responseText = `### 🏛️ Architecture Recommendation: ${architecture?.pattern || 'Modular Monolith'}\n\n` +
-        `${architecture?.summary || 'High-availability architecture designed for financial-grade resilience and sub-100ms latency.'}\n\n` +
-        `**Key Components:**\n` +
-        comps.slice(0, 4).map((c) => `- **${c.name}** (${c.technology}): ${c.role}`).join('\n') +
-        `\n\n**Data Stores & Streaming:**\n` +
-        dbs.map((d) => `- **${d.type}:** ${d.technology} — ${d.rationale || 'Primary persistence'}`).join('\n') +
-        `\n\n*Security Patterns:* OAuth2/mTLS, Field-Level Encryption (AES-256), Cloud Armor WAF.`;
-      if (comps.length > 0) {
-        citedArtifacts.push({ type: 'architecture', id: 'arch-blueprint', title: `${architecture?.pattern || 'Architecture'} Blueprint` });
-      }
-    } else {
-      responseText = `### 🤖 DevPilot Project Overview: ${activeProject.name || 'Workspace'}\n\n` +
-        `I am continuously grounded on your project specifications:\n` +
-        `- **Requirements:** ${requirements.length} atomic statements\n` +
-        `- **User Stories:** ${userStories.length} INVEST-compliant stories\n` +
-        `- **Acceptance Criteria:** ${acceptanceCriteria.length} Gherkin scenarios\n` +
-        `- **Test Cases:** ${testCases.length} automated/functional tests\n` +
-        `- **Architecture:** ${architecture?.pattern || 'Modular Monolith'}\n` +
-        `- **Sprints:** ${sprints.length} planned cycles\n\n` +
-        `How would you like to proceed? You can ask me to evaluate INVEST compliance, check for security gaps, analyze sprint capacity, or guide your export bundle.`;
+    if (!activeProject.id || !text.trim() || isProcessing.assistantTyping) return;
+    const projectId = activeProject.id;
+    setIsProcessing((previous) => ({ ...previous, assistantTyping: true }));
+    try {
+      const conversation = await api.sendAssistantMessage(projectId, text.trim());
+      setAssistantConversation((previous) => previous.projectId === projectId ? conversation : previous);
+    } catch (error) {
+      toast({ variant: 'error', title: 'Message could not be sent', description: error instanceof Error ? error.message : 'Please retry.' });
+      throw error;
+    } finally {
+      setIsProcessing((previous) => ({ ...previous, assistantTyping: false }));
     }
-
-    const botMsg: ChatMessage = {
-      id: generateId('msg'),
-      sender: 'assistant',
-      text: responseText,
-      sourceArtifacts: citedArtifacts,
-      isMock: false,
-      timestamp: new Date().toISOString(),
-    };
-
-    setAssistantConversation((prev) => ({
-      ...prev,
-      messages: [...(prev.messages ?? []), botMsg],
-      updatedAt: new Date().toISOString(),
-    }));
-    setIsProcessing((prev) => ({ ...prev, assistantTyping: false }));
-  }, [
-    activeProject.name,
-    requirements,
-    userStories,
-    acceptanceCriteria,
-    testCases,
-    architecture,
-    sprints,
-  ]);
+  }, [activeProject.id, isProcessing.assistantTyping, toast]);
 
   const resetAllData = useCallback(() => {
     toast({ variant: 'info', title: 'Data reset unavailable', description: 'Canonical workspace data is managed by the backend.' });
@@ -1522,13 +1401,13 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   return (
     <ProjectDataContext.Provider
       value={{
+        workspaceLoading, workspaceError, retryWorkspace,
         projects,
         activeProject,
         setActiveProjectId: handleSelectProjectId,
         createProject,
         updateProject,
         documents,
-        uploadDocument,
         uploadRequirementsFile,
         deleteDocument,
         requirements,
@@ -1536,7 +1415,6 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         updateRequirementStatus,
         updateRequirement,
         addRequirement,
-        extractRequirementsFromDoc,
         userStories,
         updateUserStory,
         updateUserStoryStatus,
