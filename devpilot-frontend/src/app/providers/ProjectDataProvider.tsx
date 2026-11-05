@@ -1090,34 +1090,33 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   }, [persistItem, toast]);
 
   const generateApiEndpoints = useCallback(async (storyIds: string[]) => {
-const generateApiEndpoints = useCallback(async (storyIds: string[]) => {
-  if (!activeProjectId) {
-    toast({ variant: 'error', title: 'No active project selected' });
-    return;
-  }
-  setIsProcessing((previous) => ({ ...previous, generateApi: true }));
-  try {
-    const selected = userStories.filter((story) => storyIds.includes(story.id));
-    const requirementIds = requirements.flatMap((requirement) =>
-      requirement.backendSource === 'requirements' && requirement.apiId ? [requirement.apiId] : [],
-    );
-    const artifact = await api.generateApiSpec(activeProjectId, {
-      title: `${activeProject.name} API`,
-      requirement_ids: requirementIds.length > 0 ? requirementIds : undefined,
-      instructions: selected.length ? `Consider these stories: ${selected.map((story) => story.title).join('; ')}` : undefined,
-    });
-    const detail = artifact.current_version ? artifact : await api.getArtifact(activeProjectId, artifact.id);
-    const spec = mapApiArtifact(detail);
-    setApiSpec(spec);
-    persistItem('api_specification', spec);
-    await refreshGeneratedArtifacts(activeProjectId);
-    toast({ variant: 'success', title: 'OpenAPI Spec Synchronized', description: `Generated spec with ${spec.endpoints.length} endpoint(s).` });
-  } catch (error) {
-    toast({ variant: 'error', title: 'API generation failed', description: error instanceof Error ? error.message : 'Please retry.' });
-  } finally {
-    setIsProcessing((previous) => ({ ...previous, generateApi: false }));
-  }
-}, [activeProjectId, activeProject.name, requirements, userStories, toast, persistItem, refreshGeneratedArtifacts]);
+    if (!activeProjectId) {
+      toast({ variant: 'error', title: 'No active project selected' });
+      return;
+    }
+    setIsProcessing((previous) => ({ ...previous, generateApi: true }));
+    try {
+      const selected = userStories.filter((story) => storyIds.includes(story.id));
+      const requirementIds = requirements.flatMap((requirement) =>
+        requirement.backendSource === 'requirements' && requirement.apiId ? [requirement.apiId] : [],
+      );
+      const artifact = await api.generateApiSpec(activeProjectId, {
+        title: `${activeProject.name} API`,
+        requirement_ids: requirementIds.length > 0 ? requirementIds : undefined,
+        instructions: selected.length ? `Consider these stories: ${selected.map((story) => story.title).join('; ')}` : undefined,
+      });
+      const detail = artifact.current_version ? artifact : await api.getArtifact(activeProjectId, artifact.id);
+      const spec = mapApiArtifact(detail);
+      setApiSpec(spec);
+      persistItem('api_specification', spec);
+      await refreshGeneratedArtifacts(activeProjectId);
+      toast({ variant: 'success', title: 'OpenAPI Spec Synchronized', description: `Generated spec with ${spec.endpoints.length} endpoint(s).` });
+    } catch (error) {
+      toast({ variant: 'error', title: 'API generation failed', description: error instanceof Error ? error.message : 'Please retry.' });
+    } finally {
+      setIsProcessing((previous) => ({ ...previous, generateApi: false }));
+    }
+  }, [activeProjectId, activeProject.name, requirements, userStories, toast, persistItem, refreshGeneratedArtifacts]);
 
   // Architecture
   const updateArchitecture = useCallback((arch: ArchitectureRecommendation) => {
