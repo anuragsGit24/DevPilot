@@ -16,6 +16,8 @@ from app.ingestion.validation import UploadValidationError, validate_upload
 from app.models import Requirement, RequirementChunk
 from app.schemas import (
     RequirementRead,
+    RequirementCreate,
+    RequirementUpdate,
     RequirementSearchRequest,
     RequirementSearchResponse,
     RequirementSearchResult,
@@ -153,6 +155,43 @@ async def list_requirements(
         stmt = stmt.where(Requirement.priority == priority)
     result = await session.execute(stmt.order_by(Requirement.requirement_key))
     return list(result.scalars().all())
+
+
+@router.post("", response_model=RequirementRead, status_code=201)
+async def create_requirement(request: Request, project_id: uuid.UUID, payload: RequirementCreate,
+                             current_user: CurrentUser, session: DbSession):
+    await verify_project_access(project_id, current_user, session, "requirements:edit")
+    exists = await session.scalar(select(Requirement.id).where(
+        Requirement.project_id == project_id, Requirement.requirement_key == payload.requirement_key))
+    if exists:
+        raise HTTPException(409, "A requirement with this key already exists.")
+    item = Requirement(project_id=project_id, created_by=current_user.id, **payload.model_dump())
+    session.add(item)
+    await session.flush()
+    await record_audit_log(session=session, action="REQUIREMENT_CREATED", user_id=current_user.id,
+                           entity_type="requirement", entity_id=str(item.id), entity_title=item.title,
+                           ip_address=get_client_ip(request))
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+@router.patch("/{requirement_id}", response_model=RequirementRead)
+async def update_requirement(request: Request, project_id: uuid.UUID, requirement_id: uuid.UUID,
+                             payload: RequirementUpdate, current_user: CurrentUser, session: DbSession):
+    await verify_project_access(project_id, current_user, session, "requirements:edit")
+    item = await session.scalar(select(Requirement).where(
+        Requirement.id == requirement_id, Requirement.project_id == project_id))
+    if item is None:
+        raise HTTPException(404, "Requirement not found.")
+    for key, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
+        setattr(item, key, value)
+    await record_audit_log(session=session, action="REQUIREMENT_UPDATED", user_id=current_user.id,
+                           entity_type="requirement", entity_id=str(item.id), entity_title=item.title,
+                           ip_address=get_client_ip(request))
+    await session.commit()
+    await session.refresh(item)
+    return item
 
 
 @router.post("/search", response_model=RequirementSearchResponse)

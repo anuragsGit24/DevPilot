@@ -122,7 +122,7 @@ export function AuditLogsPage() {
             <Shield size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Security & Governance Audit Trail (UC-13)</h1>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Audit log</h1>
             <p className="text-xs text-slate-500">Immutable ledger recording all pipeline interactions, reviews, and status changes</p>
           </div>
         </div>

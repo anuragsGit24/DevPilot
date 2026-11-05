@@ -19,7 +19,7 @@ async def list_work_items(
     record_type: str | None = None,
 ) -> list[WorkItem]:
     await verify_project_access(project_id, current_user, session, "projects:view")
-    stmt = select(WorkItem).where(WorkItem.project_id == project_id)
+    stmt = select(WorkItem).where(WorkItem.project_id == project_id, WorkItem.record_type != "assistant_conversation")
     if record_type:
         stmt = stmt.where(WorkItem.record_type == record_type)
     result = await session.execute(stmt.order_by(WorkItem.created_at.desc()))
@@ -35,6 +35,8 @@ async def create_work_item(
     session: DbSession,
 ) -> WorkItem:
     await verify_project_access(project_id, current_user, session, "requirements:edit")
+    if payload.record_type == "assistant_conversation":
+        raise HTTPException(422, "Use the assistant endpoint for conversations.")
     client_id = payload.payload.get("id")
     if client_id:
         existing_result = await session.execute(
@@ -96,7 +98,7 @@ async def update_work_item(
 ) -> WorkItem:
     await verify_project_access(project_id, current_user, session, "requirements:edit")
     item = await session.get(WorkItem, item_id)
-    if not item or item.project_id != project_id:
+    if not item or item.project_id != project_id or item.record_type == "assistant_conversation":
         raise HTTPException(status_code=404, detail="Work item not found.")
     values = payload.model_dump(exclude_unset=True)
     if "source_ids" in values:
@@ -128,7 +130,7 @@ async def delete_work_item(
 ) -> None:
     await verify_project_access(project_id, current_user, session, "requirements:edit")
     item = await session.get(WorkItem, item_id)
-    if not item or item.project_id != project_id:
+    if not item or item.project_id != project_id or item.record_type == "assistant_conversation":
         raise HTTPException(status_code=404, detail="Work item not found.")
     await record_audit_log(
         session=session,

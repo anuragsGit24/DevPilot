@@ -25,9 +25,7 @@ export function ApiSpecPage() {
 
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'endpoints' | 'yaml'>('endpoints');
-  const [expandedEndpoints, setExpandedEndpoints] = useState<Record<string, boolean>>({
-    'post-/api/v2/auth/biometric/login': true,
-  });
+  const [expandedEndpoints, setExpandedEndpoints] = useState<Record<string, boolean>>({});
 
   const toggleEndpoint = (key: string) => {
     setExpandedEndpoints((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -83,7 +81,7 @@ export function ApiSpecPage() {
                 viewMode === 'endpoints' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              Interactive Explorer
+              Endpoints
             </button>
             <button
               onClick={() => setViewMode('yaml')}
@@ -91,7 +89,7 @@ export function ApiSpecPage() {
                 viewMode === 'yaml' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
-              Raw OpenAPI YAML
+              OpenAPI document
             </button>
           </div>
 
@@ -102,7 +100,7 @@ export function ApiSpecPage() {
             loading={isProcessing.generateApi}
             onClick={() => generateApiEndpoints(userStories.map((s) => s.id))}
           >
-            Resync with Stories
+            Generate specification
           </Button>
         </div>
       </div>

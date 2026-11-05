@@ -1,242 +1,60 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowUpRight, ArrowRight, Plus, FileText, GitBranch, Check, Circle } from 'lucide-react';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
-import { useAuth } from '@/app/providers/AuthProvider';
-import { Card, CardHeader, CardBody, MetricCard } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { ProgressBar, Avatar } from '@/components/ui/Misc';
+import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/date';
-import {
-  FileText, Layers, CheckCircle2, AlertTriangle, ArrowRight,
-  Sparkles, TrendingUp, Calendar, Upload, Plus, ShieldCheck,
-} from 'lucide-react';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar,
-} from 'recharts';
 
 export function DashboardPage() {
-  const { user } = useAuth();
-  const { dashboard, activeProject, activities, sprints } = useProjectData();
-  const activeSprint = sprints.find((sprint) => sprint.status === 'active');
-  const confirmedRate = dashboard.requirementCount > 0
-    ? Math.round(dashboard.confirmedRequirements / dashboard.requirementCount * 100)
-    : null;
-  const sprintTotalPoints = activeSprint?.totalPoints ?? activeSprint?.capacityStoryPoints ?? 0;
-
+  const { projects, activeProject, dashboard, requirements, userStories, testCases, activities, sprints } = useProjectData();
+  const projectPath = `/projects/${activeProject.id}`;
+  const reviewQueue = [
+    ...requirements.filter((item) => item.status === 'in_review').map((item) => ({ id: item.id, title: item.title || item.id, type: 'Requirement', path: `${projectPath}/requirements` })),
+    ...userStories.filter((item) => item.status === 'in_review').map((item) => ({ id: item.id, title: item.title, type: 'Story', path: `${projectPath}/artifacts` })),
+  ];
+  const steps = [
+    { title: 'Add your requirements', description: 'Upload a document or enter requirements.', complete: requirements.length > 0, path: `${projectPath}/requirements` },
+    { title: 'Build your delivery artifacts', description: 'Generate stories, criteria, and test cases.', complete: userStories.length > 0, path: `${projectPath}/artifacts` },
+    { title: 'Plan a sprint', description: 'Turn the backlog into a delivery plan.', complete: sprints.length > 0, path: `${projectPath}/sprints` },
+  ];
   return (
     <div className="space-y-6">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-navy-900 via-navy-800 to-blue-900 rounded-2xl p-6 sm:p-8 text-white shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-medium">
-            <Sparkles size={13} className="text-blue-300" />
-            <span>AI SDLC Co-Pilot Active</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Welcome back, {user?.name?.split(' ')[0] || 'Engineer'}
-          </h1>
-          <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
-            Project <span className="font-semibold text-white">{activeProject.name || 'your workspace'}</span> has {dashboard.pendingReviewCount} items awaiting your review{activeSprint ? ` and ${activeSprint.name} is active.` : '.'}
-          </p>
-        </div>
-
-        {/* Quick Action CTAs */}
-        <div className="flex flex-wrap items-center gap-3">
-          <Link to={`/projects/${activeProject.id}/requirements`}>
-            <Button variant="secondary" size="sm" icon={<Upload size={14} />}>
-              Upload BRD
-            </Button>
-          </Link>
-          <Link to={`/projects/${activeProject.id}/sprints`}>
-            <Button variant="primary" size="sm" icon={<Calendar size={14} />}>
-              Sprint Board
-            </Button>
-          </Link>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div><h1 className="text-slate-900">Overview</h1><p className="text-xs text-slate-500 mt-1">Your projects, reviews, and delivery activity.</p></div>
+        <Link to="/projects/new" className="inline-flex items-center gap-2 rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-2 text-xs font-medium text-white"><Plus size={14} />New project</Link>
       </div>
 
-      {/* Primary KPI Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Confirmed Requirements"
-          value={`${dashboard?.confirmedRequirements ?? 0} / ${dashboard?.requirementCount ?? 0}`}
-          sub={confirmedRate === null ? 'No requirements yet' : `${confirmedRate}% confirmation rate`}
-          color="blue"
-          icon={<FileText size={20} />}
-        />
-        <MetricCard
-          label="Generated Artifacts"
-          value={(dashboard?.artifactCounts?.user_stories ?? 0) + (dashboard?.artifactCounts?.acceptance_criteria ?? 0) + (dashboard?.artifactCounts?.test_cases ?? 0)}
-          sub="Stories, Criteria, Tests & Specs"
-          color="purple"
-          icon={<Layers size={20} />}
-        />
-        <MetricCard
-          label="Quality Benchmark"
-          value={`${dashboard?.qualityScore ?? 0}%`}
-          color="green"
-          icon={<TrendingUp size={20} />}
-        />
-        <MetricCard
-          label="Active Sprint Progress"
-          value={`${dashboard?.activeSprintProgress ?? 0}%`}
-          sub={activeSprint ? `${activeSprint.name}: ${activeSprint.completedPoints ?? 0} / ${sprintTotalPoints} pts completed` : 'No active sprint'}
-          color="amber"
-          icon={<Calendar size={20} />}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 border border-slate-200 rounded-lg bg-white divide-x divide-slate-200">
+        {[
+          { label: 'Requirements', value: requirements.length, detail: `${dashboard.confirmedRequirements} confirmed` },
+          { label: 'User stories', value: userStories.length, detail: `${userStories.filter((item) => item.status === 'accepted').length} accepted` },
+          { label: 'Test cases', value: testCases.length, detail: 'Linked to this project' },
+          { label: 'Pending review', value: dashboard.pendingReviewCount, detail: activeProject.name || 'No project selected' },
+        ].map((metric) => <div key={metric.label} className="px-5 py-4 min-w-0"><p className="text-xs text-slate-500">{metric.label}</p><p className="text-2xl font-medium text-slate-900 tabular-nums mt-2">{metric.value}</p><p className="text-[11px] text-slate-500 mt-1 truncate">{metric.detail}</p></div>)}
       </div>
 
-      {/* Warnings & Actionable Alerts */}
-      {(dashboard?.warnings ?? []).length > 0 && (
-        <div className="dashboard-attention bg-amber-50 border border-amber-200/80 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2 text-amber-800 font-semibold text-xs uppercase tracking-wider">
-            <AlertTriangle size={15} className="text-amber-600" />
-            <span>Attention Required ({(dashboard?.warnings ?? []).length} items)</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {(dashboard?.warnings ?? []).map((warn, i) => (
-              <div key={i} className="dashboard-attention__item text-xs text-amber-900 bg-white/70 p-2.5 rounded-lg border border-amber-100 flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
-                <span>{warn}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-6">
+        <section className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200"><h2 className="text-slate-900">Projects <span className="ml-2 text-xs text-slate-500 font-normal">{projects.length}</span></h2><Link to="/projects" className="text-xs text-slate-500 hover:text-slate-900">View all →</Link></div>
+          {projects.slice(0, 6).map((project) => <Link key={project.id} to={`/projects/${project.id}/overview`} className="flex items-center gap-3 px-5 py-4 border-b last:border-0 border-slate-100 hover:bg-slate-50 group">
+            <div className="p-2 rounded border border-slate-200 text-slate-500"><GitBranch size={16} /></div>
+            <div className="min-w-0 flex-1"><span className="text-sm font-medium text-slate-900 block truncate">{project.name}</span><span className="text-xs text-slate-500 block truncate mt-1">{project.description || 'No description added'}</span></div>
+            <Badge variant="outline" size="xs">{project.status.replace('_', ' ')}</Badge><ArrowUpRight size={14} className="text-slate-500 shrink-0" />
+          </Link>)}
+          {!projects.length && <div className="p-8"><p className="text-sm text-slate-700">No projects yet</p><p className="text-xs text-slate-500 mt-2">Create a project to bring your requirements and delivery work together.</p></div>}
+        </section>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quality Trend Chart */}
-        <Card className="lg:col-span-2">
-          <CardHeader
-            action={
-              <Link to={`/projects/${activeProject.id}/evaluations`} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                View Runs <ArrowRight size={12} />
-              </Link>
-            }
-          >
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Synthetic Quality Trend</h2>
-              <p className="text-xs text-slate-500">6-Month historical AI synthesis benchmark accuracy</p>
-            </div>
-          </CardHeader>
-          <CardBody>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dashboard?.evaluationTrend ?? []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="qualityGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0070ba" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#0070ba" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(d) => formatDate(d, 'MMM')} />
-                  <YAxis domain={[50, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0c2340', borderColor: '#1e3a5f', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                    formatter={(val: number) => [`${val}% Quality`, 'Score']}
-                  />
-                  <Area type="monotone" dataKey="score" stroke="#0070ba" strokeWidth={2.5} fillOpacity={1} fill="url(#qualityGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* Prompt Performance Leaderboard */}
-        <Card>
-          <CardHeader
-            action={
-              <Link to="/prompts" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                All Prompts <ArrowRight size={12} />
-              </Link>
-            }
-          >
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Prompt Benchmarks</h2>
-              <p className="text-xs text-slate-500">Top-performing production templates</p>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-4">
-            {(dashboard?.promptPerformance ?? []).map((item, idx) => (
-              <div key={idx} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-slate-800 truncate max-w-[180px]">{item.name}</span>
-                  <span className="font-semibold text-blue-600">{item.score}%</span>
-                </div>
-                <ProgressBar value={item.score} size="sm" color={item.score >= 75 ? 'green' : item.score >= 70 ? 'blue' : 'amber'} />
-                <div className="flex justify-between text-2xs text-slate-400">
-                  <span>{item.runs} production runs</span>
-                  <span>Target: ≥70%</span>
-                </div>
-              </div>
-            ))}
-          </CardBody>
-        </Card>
+        <section className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200"><h2 className="text-slate-900">{requirements.length ? 'Review queue' : 'Getting started'}</h2><p className="text-xs text-slate-500 mt-1 truncate">{activeProject.name || 'Set up your first project'}</p></div>
+          {!activeProject.id ? <div className="p-5"><Link to="/projects/new"><Button size="sm">Create a project</Button></Link></div> : !requirements.length ? <div className="divide-y divide-slate-100">{steps.map((step, index) => <Link key={step.title} to={step.path} className="flex gap-3 px-5 py-4 hover:bg-slate-50"><span className="w-6 h-6 shrink-0 rounded-full border border-slate-200 flex items-center justify-center text-xs text-slate-500">{step.complete ? <Check size={12} /> : index + 1}</span><div><p className="text-xs font-medium text-slate-900">{step.title}</p><p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.description}</p></div></Link>)}</div> : reviewQueue.length ? reviewQueue.slice(0, 5).map((item) => <Link key={item.id} to={item.path} className="flex items-start gap-3 px-5 py-4 border-b border-slate-100 last:border-0 hover:bg-slate-50"><Circle size={14} className="text-amber-500 mt-1 shrink-0" /><div className="min-w-0"><p className="text-xs font-medium text-slate-900 truncate">{item.title}</p><p className="text-[11px] text-slate-500 mt-1">{item.id} · {item.type}</p></div></Link>) : <div className="px-5 py-8"><Check size={18} className="text-slate-500 mb-3" /><p className="text-sm text-slate-700">You’re up to date</p><p className="text-xs text-slate-500 mt-1">No requirements or stories are waiting for review.</p></div>}
+        </section>
       </div>
 
-      {/* Bottom Row: Recent Activity Feed & Project Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Activity Stream */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Audit & Activity Log</h2>
-              <p className="text-xs text-slate-500">Real-time team and pipeline interactions</p>
-            </div>
-          </CardHeader>
-          <CardBody className="divide-y divide-slate-100">
-            {activities.slice(0, 5).map((act) => (
-              <div key={act.id} className="py-3 first:pt-0 last:pb-0 flex items-start gap-3">
-                <Avatar name={act.userName} size="sm" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-slate-800">
-                    <span className="font-semibold text-slate-900">{act.userName}</span> {act.action}
-                    {act.entityTitle && <span className="font-mono text-blue-600 ml-1">[{act.entityTitle}]</span>}
-                  </p>
-                  <p className="text-2xs text-slate-400 mt-0.5">{formatDate(act.timestamp, 'dd MMM yyyy, HH:mm')}</p>
-                </div>
-                <Badge variant="outline" size="xs">
-                  {act.entityType || act.resourceType || 'general'}
-                </Badge>
-              </div>
-            ))}
-          </CardBody>
-        </Card>
-
-        {/* SDLC Stage Health Checklist */}
-        <Card>
-          <CardHeader>
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">SDLC Governance</h2>
-              <p className="text-xs text-slate-500">Pipeline compliance gates</p>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-3">
-            {[
-              { stage: 'BRD Ingestion & Extraction', status: 'Passed', icon: CheckCircle2, color: 'text-green-600' },
-              { stage: 'User Story Synthesis', status: 'Passed', icon: CheckCircle2, color: 'text-green-600' },
-              { stage: 'Gherkin Criteria Validation', status: 'In Review', icon: AlertTriangle, color: 'text-amber-500' },
-              { stage: 'Test Case Automation Coverage', status: 'Needs Attention', icon: AlertTriangle, color: 'text-amber-500' },
-              { stage: 'OpenAPI Spec Synchronization', status: 'Verified', icon: ShieldCheck, color: 'text-blue-600' },
-            ].map((gate, i) => {
-              const Icon = gate.icon;
-              return (
-                <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                  <span className="text-xs font-medium text-slate-700">{gate.stage}</span>
-                  <div className="flex items-center gap-1.5">
-                    <Icon size={14} className={gate.color} />
-                    <span className="text-xs font-semibold text-slate-600">{gate.status}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </CardBody>
-        </Card>
-      </div>
+      <section className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200"><h2 className="text-slate-900">Recent activity</h2></div>
+        {activities.length ? activities.slice(0, 8).map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0"><FileText size={14} className="text-slate-500" /><span className="text-xs text-slate-700 flex-1 min-w-0 truncate">{item.userName} {item.action} <span className="text-slate-900">{item.entityTitle}</span></span><time className="text-[11px] text-slate-500">{formatDate(item.timestamp, 'dd MMM, HH:mm')}</time></div>) : <div className="px-5 py-8 text-xs text-slate-500">Project changes will appear here as work gets underway.</div>}
+      </section>
+      {activeProject.id && <Link to={`${projectPath}/requirements`} className="inline-flex items-center gap-2 text-xs text-slate-500 hover:text-slate-900">Open {activeProject.name}<ArrowRight size={13} /></Link>}
     </div>
   );
 }

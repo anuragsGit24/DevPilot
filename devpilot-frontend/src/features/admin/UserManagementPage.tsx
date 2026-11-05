@@ -155,7 +155,7 @@ export function UserManagementPage() {
             <Users size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Enterprise User Management (UC-13)</h1>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">User management</h1>
             <p className="text-xs text-slate-500">Configure role assignments, server-side RBAC, and security lockout states</p>
           </div>
         </div>

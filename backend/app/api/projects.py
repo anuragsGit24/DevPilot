@@ -25,6 +25,8 @@ async def create_project(
         id=uuid.uuid4(),
         name=project_data.name,
         description=project_data.description,
+        status=project_data.status,
+        tags=project_data.tags,
         created_by=current_user.id,
     )
     session.add(project)
@@ -91,7 +93,7 @@ async def update_project(
     session: DbSession,
 ) -> Project:
     project = await verify_project_access(project_id, current_user, session, "projects:manage")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    for key, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(project, key, value)
     await record_audit_log(
         session=session,
