@@ -43,13 +43,13 @@ export function NewProjectPage() {
         try { await uploadRequirementsFile(selectedFile, newProj.id); }
         catch (error) {
           toast({ variant: 'error', title: 'Project created; document upload failed', description: error instanceof Error ? error.message : 'Retry the upload from Requirements.' });
-          navigate(`/projects/${newProj.id}/requirements`);
+          void navigate(`/projects/${newProj.id}/requirements`);
           return;
         }
       }
 
       toast({ variant: 'success', title: 'Project Initialized', description: 'Redirecting to requirements workspace...' });
-      navigate(`/projects/${newProj.id}/requirements`);
+      void navigate(`/projects/${newProj.id}/requirements`);
     } catch (error) {
       toast({
         variant: 'error',
