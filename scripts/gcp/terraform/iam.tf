@@ -60,10 +60,18 @@ resource "google_service_account" "deployer" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_project_iam_member" "deployer_run_admin" {
-  project = var.project_id
-  role    = "roles/run.admin"
-  member  = "serviceAccount:${google_service_account.deployer.email}"
+resource "google_cloud_run_v2_service_iam_member" "deployer_service" {
+  name     = google_cloud_run_v2_service.backend.name
+  location = google_cloud_run_v2_service.backend.location
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "deployer_migration_job" {
+  name     = google_cloud_run_v2_job.migrate.name
+  location = google_cloud_run_v2_job.migrate.location
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${google_service_account.deployer.email}"
 }
 
 resource "google_project_iam_member" "deployer_usage" {
