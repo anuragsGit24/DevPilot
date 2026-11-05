@@ -369,12 +369,12 @@ function mapWorkItem<T extends object>(item: ApiWorkItem): T {
       payload.dataStores = payload.data_stores;
     }
     if ((!Array.isArray(payload.decisions) || payload.decisions.length === 0) && Array.isArray(payload.adrs)) {
-      payload.decisions = payload.adrs.map((a: any) => ({
-        id: a.id,
-        title: a.title,
-        context: a.context,
-        decision: a.decision,
-        consequences: a.consequences,
+      payload.decisions = (payload.adrs as Array<Record<string, unknown>>).map((a) => ({
+        id: typeof a.id === 'string' ? a.id : '',
+        title: typeof a.title === 'string' ? a.title : '',
+        context: typeof a.context === 'string' ? a.context : '',
+        decision: typeof a.decision === 'string' ? a.decision : '',
+        consequences: typeof a.consequences === 'string' ? a.consequences : '',
       }));
     }
     if (typeof payload.rationale === 'string' && payload.rationale.includes("Signal scores: {")) {
@@ -461,6 +461,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!isAuthenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWorkspaceLoading(false);
       setWorkspaceError('');
       setProjects([]);
@@ -610,28 +611,28 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
             const artifacts = await api.listArtifacts(targetProjectId, 'user_stories');
             if (artifacts.length > 0) {
               const latestDetail = await api.getArtifact(targetProjectId, artifacts[0].id);
-              const artifactStories = (latestDetail.current_version?.payload as any)?.stories;
+              const artifactStories = (latestDetail.current_version?.payload as { stories?: Array<Record<string, unknown>> })?.stories;
               if (Array.isArray(artifactStories) && artifactStories.length > 0) {
-                loadedStories = artifactStories.map((s: any) => ({
-                  id: s.story_key || s.id || generateId('us'),
+                loadedStories = artifactStories.map((s) => ({
+                  id: (s.story_key as string) || (s.id as string) || generateId('us'),
                   projectId: targetProjectId,
                   artifactVersionId: latestDetail.current_version?.id,
-                  requirementId: s.source_requirement_keys?.[0] || '',
-                  title: s.title || `User Story ${s.story_key || s.id}`,
-                  asA: s.as_a,
-                  userRole: s.as_a || 'User',
-                  iWant: s.i_want,
-                  action: s.i_want || '',
-                  soThat: s.so_that,
-                  benefit: s.so_that || '',
-                  personaDescription: s.as_a || '',
+                  requirementId: (s.source_requirement_keys as string[])?.[0] || '',
+                  title: (s.title as string) || `User Story ${s.story_key || s.id}`,
+                  asA: s.as_a as string | undefined,
+                  userRole: (s.as_a as string) || 'User',
+                  iWant: s.i_want as string | undefined,
+                  action: (s.i_want as string) || '',
+                  soThat: s.so_that as string | undefined,
+                  benefit: (s.so_that as string) || '',
+                  personaDescription: (s.as_a as string) || '',
                   storyPoints: typeof s.estimated_story_points === 'number' ? s.estimated_story_points : 3,
-                  priority: (s.priority as any) || 'should',
+                  priority: ((s.priority as UserStory['priority']) || 'should'),
                   status: 'draft' as ArtifactStatus,
                   version: latestDetail.current_version?.version_number || 1,
                   history: [],
-                  sourceRequirementIds: s.source_requirement_keys || [],
-                  dependencyIds: s.dependency_ids || [],
+                  sourceRequirementIds: (s.source_requirement_keys as string[]) || [],
+                  dependencyIds: (s.dependency_ids as string[]) || [],
                   createdAt: latestDetail.created_at,
                   updatedAt: latestDetail.updated_at,
                 }));
@@ -824,17 +825,18 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         description: `Successfully extracted ${res.requirements_created} atomic requirements from ${file.name}.`,
       });
       return res;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to ingest requirements document';
       toast({
         variant: 'error',
         title: 'Upload failed',
-        description: err.message || 'Failed to ingest requirements document',
+        description: message,
       });
       throw err;
     } finally {
       setIsProcessing((prev) => ({ ...prev, upload: false }));
     }
-  }, [logActivity, refreshBackendRequirements, toast, user?.name]);
+  }, [logActivity, refreshBackendRequirements, toast, user]);
 
   const deleteDocument = useCallback((id: string) => {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
@@ -918,29 +920,29 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         requirement_ids: backendRequirementIds.length > 0 ? backendRequirementIds : undefined,
       });
       const sourceApiIds = artifact.current_version?.source_requirement_ids ?? [];
-      const rawStories = (artifact.current_version?.payload as any)?.stories || [];
-      const generated: UserStory[] = rawStories.map((s: any) => {
-        const sid = s.story_key || s.id || generateId('us');
+      const rawStories = ((artifact.current_version?.payload as { stories?: Array<Record<string, unknown>> })?.stories) || [];
+      const generated: UserStory[] = rawStories.map((s) => {
+        const sid = (s.story_key as string) || (s.id as string) || generateId('us');
         return {
           id: sid,
           projectId: activeProjectId,
           artifactVersionId: artifact.current_version?.id,
           requirementId: localIdByApiId.get(sourceApiIds[0] ?? '') || requirementIds[0] || '',
-          title: s.title || `User Story ${sid}`,
-          asA: s.as_a,
-          userRole: s.as_a || 'User',
-          iWant: s.i_want,
-          action: s.i_want || '',
-          soThat: s.so_that,
-          benefit: s.so_that || '',
-          personaDescription: s.as_a || '',
+          title: (s.title as string) || `User Story ${sid}`,
+          asA: s.as_a as string | undefined,
+          userRole: (s.as_a as string) || 'User',
+          iWant: s.i_want as string | undefined,
+          action: (s.i_want as string) || '',
+          soThat: s.so_that as string | undefined,
+          benefit: (s.so_that as string) || '',
+          personaDescription: (s.as_a as string) || '',
           storyPoints: typeof s.estimated_story_points === 'number' ? s.estimated_story_points : 3,
-          priority: (s.priority as any) || 'should',
+          priority: ((s.priority as UserStory['priority']) || 'should'),
           status: 'draft' as ArtifactStatus,
           version: artifact.current_version?.version_number || 1,
           history: [],
-          sourceRequirementIds: s.source_requirement_keys || requirementIds,
-          dependencyIds: s.dependency_ids || [],
+          sourceRequirementIds: (s.source_requirement_keys as string[]) || requirementIds,
+          dependencyIds: (s.dependency_ids as string[]) || [],
           createdAt: artifact.created_at || new Date().toISOString(),
           updatedAt: artifact.updated_at || new Date().toISOString(),
         };
@@ -982,11 +984,12 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         description: `Generated ${generated.length} user stories from requirements.`,
       });
       return generated;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to generate user stories';
       toast({
         variant: 'error',
         title: 'User story generation failed',
-        description: err.message || 'Unable to generate user stories',
+        description: message,
       });
       throw err;
     } finally {
@@ -1178,11 +1181,12 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         description: `Successfully synthesized ${res.pattern} pattern (${res.provider}).`,
       });
       return mappedArch;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to generate recommendation';
       toast({
         variant: 'error',
         title: 'Architecture synthesis failed',
-        description: err.message || 'Unable to generate recommendation',
+        description: message,
       });
       throw err;
     } finally {
@@ -1241,9 +1245,10 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       try {
         await api.deleteWorkItem(activeProjectId, apiId);
         toast({ variant: 'success', title: 'Sprint deleted', description: sprintToDelete.name });
-      } catch (err: any) {
+      } catch (err: unknown) {
         setSprints((prev) => [...prev, sprintToDelete]);
-        toast({ variant: 'error', title: 'Failed to delete sprint', description: err.message });
+        const message = err instanceof Error ? err.message : 'Failed to delete sprint';
+        toast({ variant: 'error', title: 'Failed to delete sprint', description: message });
         throw err;
       }
     }
@@ -1325,7 +1330,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         goal: sp.goal,
         startDate: sp.start_date,
         endDate: sp.end_date,
-        status: sp.status as any,
+        status: (sp.status as Sprint['status']) || 'planning',
         totalPoints: sp.total_points,
         completedPoints: 0,
         allocatedStoryPoints: sp.total_points,
@@ -1355,11 +1360,12 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         description: `Successfully planned ${res.total_stories_planned} stories across ${res.total_sprints} sprints (${res.total_story_points} pts).`,
       });
       return res;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to plan sprints';
       toast({
         variant: 'error',
         title: 'Sprint planning failed',
-        description: err.message || 'Unable to plan sprints',
+        description: message,
       });
       throw err;
     } finally {
@@ -1379,7 +1385,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
         goal: sp.goal,
         startDate: sp.start_date,
         endDate: sp.end_date,
-        status: sp.status as any,
+        status: (sp.status as Sprint['status']) || 'planning',
         totalPoints: sp.total_points,
         completedPoints: 0,
         allocatedStoryPoints: sp.total_points,
@@ -1391,8 +1397,9 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
       }));
       setSprints(mapped);
       return mapped;
-    } catch (err: any) {
-      toast({ variant: 'error', title: 'Failed to refresh sprints', description: err.message });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to refresh sprints';
+      toast({ variant: 'error', title: 'Failed to refresh sprints', description: message });
       return [];
     }
   }, [activeProjectId, toast]);
@@ -1474,6 +1481,7 @@ export function ProjectDataProvider({ children }: { children: React.ReactNode })
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useProjectData() {
   const ctx = useContext(ProjectDataContext);
   if (!ctx) throw new Error('useProjectData must be used within ProjectDataProvider');
