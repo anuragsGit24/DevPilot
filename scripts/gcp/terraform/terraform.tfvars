@@ -1,4 +1,3 @@
-# Copy to terraform.tfvars (git-ignored) and edit.
 project_id  = "devpilot-1"
 region      = "us-central1"
 github_repo = "anuragsGit24/DevPilot"

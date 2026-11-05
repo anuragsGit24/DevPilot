@@ -38,8 +38,13 @@ jobs:
       - name: Format check
         run: terraform fmt -check -recursive -diff
 
-      - name: Init (no backend, no credentials)
-        run: terraform init -backend=false -input=false
+      - name: Use a throwaway local backend (validation only)
+        run: |
+          rm -rf .terraform
+          printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+
+      - name: Init (no credentials)
+        run: terraform init -input=false -reconfigure
 
       - name: Validate
         run: terraform validate

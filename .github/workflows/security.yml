@@ -70,8 +70,7 @@ jobs:
         working-directory: backend
         run: |
           uv export --locked --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
-          uvx pip-audit -r requirements-audit.txt --no-deps --disable-pip
-
+          uvx --no-build pip-audit -r requirements-audit.txt --no-deps --disable-pip
   npm-audit:
     name: npm dependency audit
     runs-on: ubuntu-latest
