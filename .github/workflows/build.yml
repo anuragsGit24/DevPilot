@@ -52,7 +52,7 @@ jobs:
 
       - name: Run frontend tests and create coverage report
         working-directory: devpilot-frontend
-        run: npx vitest run --coverage
+        run: ./node_modules/.bin/vitest run --coverage
 
       - name: Build frontend
         working-directory: devpilot-frontend
