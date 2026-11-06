@@ -1,0 +1,84 @@
+name: Pipeline
+
+# Single entry point:
+#   Pull request -> CI -> SonarQube (reuses CI coverage)   | Security (parallel)
+#   Push to main -> same, then Deploy (only what changed, only if CI + Security pass)
+#   SonarQube does not gate deploys yet: add "sonar" to the deploy jobs' needs to enforce it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'devpilot-frontend/**'
+
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  sonar:
+    name: SonarQube
+    needs: ci
+    uses: ./.github/workflows/sonarqube.yml
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      # Set to true once the Sonar quality gate is tuned and you want it to block.
+      wait_for_quality_gate: false
+
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+
+  deploy-backend:
+    name: Deploy backend
+    needs: [changes, ci, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true'
+    uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+
+  deploy-frontend:
+    name: Deploy frontend
+    needs: [changes, ci, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/deploy-frontend.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
