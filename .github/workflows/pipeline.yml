@@ -73,13 +73,12 @@ jobs:
       contents: read
       id-token: write
 
-  # Frontend deployment is disabled until deploy-frontend.yml is added.
-  # deploy-frontend:
-  #   name: Deploy frontend
-  #   needs: [changes, ci, security]
-  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'
-  #   uses: ./.github/workflows/deploy-frontend.yml
-  #   secrets: inherit
-  #   permissions:
-  #     contents: read
-  #     id-token: write
+  deploy-frontend:
+    name: Deploy frontend
+    needs: [changes, ci, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/deploy-frontend.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write

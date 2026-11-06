@@ -145,3 +145,5 @@ id_ed25519
 # Terraform local variables
 *.tfvars
 *.tfvars.json
+scripts\gcp\terraform\tfplan
+scripts\gcp\terraform\.terraform\terraform.tfstate

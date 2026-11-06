@@ -75,9 +75,26 @@ variable "backend_image" {
   }
 }
 
+variable "frontend_image" {
+  description = "Initial frontend image for Cloud Run. The deploy workflow replaces it with the built image."
+  type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+}
+
 variable "service_name" {
   type    = string
   default = "devpilot-backend"
+}
+
+variable "frontend_service_name" {
+  type    = string
+  default = "devpilot-frontend"
+}
+
+variable "frontend_origin_aliases" {
+  description = "Additional frontend origins allowed by backend CORS, for example an existing Cloud Run URL alias."
+  type        = list(string)
+  default     = []
 }
 
 variable "migration_job_name" {

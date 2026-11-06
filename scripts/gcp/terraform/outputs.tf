@@ -8,11 +8,16 @@ output "github_actions_variables" {
     AR_REPOSITORY     = google_artifact_registry_repository.images.repository_id
     CLOUD_RUN_SERVICE = google_cloud_run_v2_service.backend.name
     MIGRATION_JOB     = google_cloud_run_v2_job.migrate.name
+    FRONTEND_SERVICE  = google_cloud_run_v2_service.frontend.name
   }
 }
 
 output "service_url" {
   value = google_cloud_run_v2_service.backend.uri
+}
+
+output "frontend_url" {
+  value = google_cloud_run_v2_service.frontend.uri
 }
 
 output "cloud_sql_connection_name" {

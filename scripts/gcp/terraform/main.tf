@@ -17,6 +17,11 @@ locals {
     var.enable_vertex_ai ? ["aiplatform.googleapis.com"] : []
   ))
 
+  cors_origins = jsonencode(concat(
+    ["http://localhost:5173", "http://127.0.0.1:5173"],
+    [google_cloud_run_v2_service.frontend.uri],
+    var.frontend_origin_aliases
+  ))
 }
 
 resource "google_project_service" "apis" {
@@ -174,7 +179,7 @@ resource "google_cloud_run_v2_service" "backend" {
       }
 
       env {
-        name = "DATABASE_URL"
+        name = "DEVPILOT_DATABASE_URL"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.database_url.secret_id
@@ -184,7 +189,10 @@ resource "google_cloud_run_v2_service" "backend" {
       }
 
       dynamic "env" {
-        for_each = var.backend_env
+        for_each = merge(
+          var.backend_env,
+          { DEVPILOT_CORS_ORIGINS = local.cors_origins }
+        )
         content {
           name  = env.key
           value = env.value
@@ -220,6 +228,55 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
 }
 
 # ---------------------------------------------------------------------------
+# Cloud Run: frontend SPA
+# ---------------------------------------------------------------------------
+resource "google_cloud_run_v2_service" "frontend" {
+  name     = var.frontend_service_name
+  location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    scaling {
+      min_instance_count = 0
+      max_instance_count = var.max_instances
+    }
+
+    containers {
+      image = var.frontend_image
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+      template[0].revision,
+      client,
+      client_version,
+      traffic,
+    ]
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "frontend_public" {
+  count    = var.allow_unauthenticated ? 1 : 0
+  name     = google_cloud_run_v2_service.frontend.name
+  location = google_cloud_run_v2_service.frontend.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+# ---------------------------------------------------------------------------
 # Cloud Run: migration job (alembic upgrade head)
 # ---------------------------------------------------------------------------
 resource "google_cloud_run_v2_job" "migrate" {
@@ -250,7 +307,7 @@ resource "google_cloud_run_v2_job" "migrate" {
         }
 
         env {
-          name = "DATABASE_URL"
+          name = "DEVPILOT_DATABASE_URL"
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.database_url.secret_id

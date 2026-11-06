@@ -67,6 +67,13 @@ resource "google_cloud_run_v2_service_iam_member" "deployer_service" {
   member   = "serviceAccount:${google_service_account.deployer.email}"
 }
 
+resource "google_cloud_run_v2_service_iam_member" "deployer_frontend_service" {
+  name     = google_cloud_run_v2_service.frontend.name
+  location = google_cloud_run_v2_service.frontend.location
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${google_service_account.deployer.email}"
+}
+
 resource "google_cloud_run_v2_job_iam_member" "deployer_migration_job" {
   name     = google_cloud_run_v2_job.migrate.name
   location = google_cloud_run_v2_job.migrate.location
