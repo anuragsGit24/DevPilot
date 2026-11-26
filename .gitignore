@@ -15,6 +15,9 @@ $RECYCLE.BIN/
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
+.agents/
+TEAM_PARALLEL_WORKLOAD_DIVISION.md
+skills-lock.json
 *.suo
 *.user
 *.userossc
@@ -138,3 +141,9 @@ id_ed25519
 *.exe
 *.dmg
 *.pkg
+
+# Terraform local variables
+*.tfvars
+*.tfvars.json
+scripts\gcp\terraform\tfplan
+scripts\gcp\terraform\.terraform\terraform.tfstate
