@@ -88,7 +88,7 @@ const progressColors = {
 };
 
 export function ProgressBar({ value, max = 100, label, size = 'md', color = 'blue', showLabel = false, className }: ProgressBarProps) {
-  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  const pct = Number.isFinite(value) && Number.isFinite(max) && max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   const sizes = { sm: 'h-1.5', md: 'h-2.5', lg: 'h-4' };
 
   return (
@@ -105,7 +105,7 @@ export function ProgressBar({ value, max = 100, label, size = 'md', color = 'blu
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={label}
+        aria-label={label || 'Progress'}
       >
         <div
           className={cn('h-full rounded-full transition-all duration-500', progressColors[color])}

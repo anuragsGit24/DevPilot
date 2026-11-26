@@ -154,7 +154,7 @@ export function RequirementsPage() {
                   type="file"
                   id="req-brd-upload"
                   className="hidden"
-                  accept=".pdf,.docx,.doc,.txt,.md"
+                  accept=".pdf,.docx,.txt,.md"
                   onChange={handleFileUpload}
                   disabled={uploading}
                 />
@@ -258,7 +258,7 @@ export function RequirementsPage() {
               <option value="all">All Categories</option>
               <option value="security">Security</option>
               <option value="functional">Functional</option>
-              <option value="compliance">Compliance</option>
+              <option value="non_functional">Non-functional</option>
               <option value="performance">Performance</option>
             </select>
           </div>
@@ -325,7 +325,7 @@ export function RequirementsPage() {
                   })}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-xs font-semibold text-blue-600">{result.requirement.requirement_key}</span>
+                    <span className="font-mono text-xs font-semibold text-blue-600 whitespace-nowrap">{result.requirement.requirement_key}</span>
                     <span className="text-2xs font-semibold text-slate-500">{Math.round(result.similarity * 100)}% match</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-700">{result.chunk.content}</p>
@@ -342,7 +342,7 @@ export function RequirementsPage() {
           <table className="w-full data-table">
             <thead>
               <tr>
-                <th className="w-24">Req ID</th>
+                <th className="w-40">Req ID</th>
                 <th>Requirement Title & Source Context</th>
                 <th className="w-32">Category</th>
                 <th className="w-24">Priority</th>
@@ -354,7 +354,7 @@ export function RequirementsPage() {
             <tbody>
               {filteredReqs.map((req) => (
                 <tr key={req.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="font-mono text-xs font-semibold text-blue-600">
+                  <td className="font-mono text-xs font-semibold text-blue-600 whitespace-nowrap">
                     {req.id}
                   </td>
                   <td>
@@ -368,7 +368,7 @@ export function RequirementsPage() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 line-clamp-2">{req.description}</p>
-                      <p className="text-2xs text-slate-400 font-mono">Source: {req.sourceSection || req.sourceDocumentName || req.sourceDocumentId || 'Not recorded'}</p>
+                      <p className="text-2xs text-slate-400 font-mono">Source: {req.sourceSection || req.sourceDocumentName || (req.backendSource === 'requirements' ? 'Manual entry' : req.sourceDocumentId) || 'Not recorded'}</p>
                     </div>
                   </td>
                   <td>
@@ -380,8 +380,8 @@ export function RequirementsPage() {
                     <PriorityBadge priority={req.priority} />
                   </td>
                   <td>
-                    <span className={`text-xs font-semibold ${(req.confidenceScore ?? 0) >= 90 ? 'text-green-600' : 'text-amber-600'}`}>
-                      {req.confidenceScore ?? 0}%
+                    <span className={`text-xs font-semibold ${req.confidenceScore == null ? 'text-slate-500' : req.confidenceScore >= 90 ? 'text-green-600' : 'text-amber-600'}`}>
+                      {req.confidenceScore == null ? '—' : `${req.confidenceScore}%`}
                     </span>
                   </td>
                   <td>
@@ -486,7 +486,7 @@ export function RequirementsPage() {
               <RequirementStatusBadge status={selectedReq.status} />
               <PriorityBadge priority={selectedReq.priority} />
               <Badge variant="outline" size="xs" className="capitalize">{selectedReq.category}</Badge>
-              <span className="text-xs text-slate-400 font-mono ml-auto">Confidence: {selectedReq.confidenceScore}%</span>
+              <span className="text-xs text-slate-400 font-mono ml-auto">Confidence: {selectedReq.confidenceScore == null ? 'Not scored' : `${selectedReq.confidenceScore}%`}</span>
             </div>
 
             <div>
@@ -571,7 +571,7 @@ export function RequirementsPage() {
                 >
                   <option value="functional">Functional</option>
                   <option value="security">Security</option>
-                  <option value="compliance">Compliance</option>
+                  <option value="non_functional">Non-functional</option>
                   <option value="performance">Performance</option>
                 </select>
               </div>
@@ -602,23 +602,22 @@ export function RequirementsPage() {
         footer={null}
       >
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             const form = e.target as HTMLFormElement;
             const data = new FormData(form);
-            addRequirement({
-              projectId: projectId || 'proj-001',
-              sourceDocumentId: documents[0]?.id || 'doc-manual',
-              sourceSection: 'Manual Entry (Direct BA Input)',
+            try { await addRequirement({
+              projectId: projectId || '',
+              sourceSection: 'Manual entry',
               title: data.get('title') as string,
               description: data.get('description') as string,
               category: data.get('category') as RequirementCategory,
               priority: data.get('priority') as RequirementPriority,
               status: 'confirmed',
-              confidenceScore: 100,
               contradictions: [],
             });
             setNewReqOpen(false);
+            } catch (error) { toast({ variant: 'error', title: 'Requirement could not be created', description: error instanceof Error ? error.message : 'Please retry.' }); }
           }}
           className="space-y-4"
         >
@@ -630,7 +629,7 @@ export function RequirementsPage() {
               <select name="category" className="form-input text-xs w-full">
                 <option value="functional">Functional</option>
                 <option value="security">Security</option>
-                <option value="compliance">Compliance</option>
+                <option value="non_functional">Non-functional</option>
                 <option value="performance">Performance</option>
               </select>
             </div>

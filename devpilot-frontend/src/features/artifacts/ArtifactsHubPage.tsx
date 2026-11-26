@@ -15,11 +15,11 @@ export function ArtifactsHubPage() {
   const currentTab = searchParams.get('tab') || 'user_stories';
 
   const tabs = [
-    { id: 'user_stories', label: 'User Stories (UC-02)', icon: Layers },
-    { id: 'acceptance_criteria', label: 'Gherkin Acceptance Criteria (UC-03)', icon: CheckCircle2 },
-    { id: 'test_cases', label: 'Test Cases & Automation (UC-04)', icon: ShieldCheck },
-    { id: 'api_spec', label: 'OpenAPI 3.1 Spec (UC-05)', icon: Code2 },
-    { id: 'architecture', label: 'Architecture Recommendations (UC-06)', icon: Cpu },
+    { id: 'user_stories', label: 'User stories', icon: Layers },
+    { id: 'acceptance_criteria', label: 'Acceptance criteria', icon: CheckCircle2 },
+    { id: 'test_cases', label: 'Test cases', icon: ShieldCheck },
+    { id: 'api_spec', label: 'API specification', icon: Code2 },
+    { id: 'architecture', label: 'Architecture', icon: Cpu },
   ];
 
   return (
@@ -36,7 +36,7 @@ export function ArtifactsHubPage() {
                 onClick={() => setSearchParams({ tab: tab.id })}
                 className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-slate-100 text-slate-900'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
@@ -54,14 +54,14 @@ export function ArtifactsHubPage() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 shadow-xs transition-colors"
             >
               <GitBranch size={13} className="text-indigo-600" />
-              <span>Traceability Matrix</span>
+              <span>Traceability</span>
             </Link>
             <Link
               to={`/projects/${projectId}/export`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 shadow-xs transition-colors"
             >
               <Download size={13} className="text-emerald-400" />
-              <span>Export Hub</span>
+              <span>Export</span>
             </Link>
           </div>
         )}

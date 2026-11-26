@@ -47,7 +47,7 @@ export function DataTable<T>({
     return [...data].sort((a, b) => {
       const aVal = String((a as Record<string, unknown>)[sort.key] ?? '');
       const bVal = String((b as Record<string, unknown>)[sort.key] ?? '');
-      return sort.dir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      return sort.dir === 'asc' ? aVal.localeCompare(bVal, undefined, { numeric: true }) : bVal.localeCompare(aVal, undefined, { numeric: true });
     });
   }, [data, sort]);
 
@@ -71,7 +71,7 @@ export function DataTable<T>({
 
   return (
     <div className={cn('overflow-x-auto', className)}>
-      <table className="w-full data-table" role="grid">
+      <table className="w-full data-table" >
         <thead className={stickyHeader ? 'sticky top-0 z-10' : undefined}>
           <tr>
             {columns.map((col) => (
@@ -80,17 +80,16 @@ export function DataTable<T>({
                 scope="col"
                 style={col.width ? { width: col.width } : undefined}
                 className={cn(col.className, col.sortable && 'cursor-pointer select-none hover:bg-slate-100')}
-                onClick={col.sortable ? () => handleSort(col.key) : undefined}
                 aria-sort={sort?.key === col.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
               >
-                <div className="flex items-center gap-1">
+                <button type="button" disabled={!col.sortable} onClick={() => handleSort(col.key)} className="flex items-center gap-1 text-left disabled:cursor-default">
                   {col.header}
                   {col.sortable && (
                     <span className="text-slate-400">
                       {sort?.key === col.key ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
                     </span>
                   )}
-                </div>
+                </button>
               </th>
             ))}
           </tr>
@@ -99,11 +98,11 @@ export function DataTable<T>({
           {sortedData.map((row, idx) => (
             <tr
               key={keyExtractor(row)}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onClick={onRowClick ? (event) => { if (!(event.target as HTMLElement).closest('button, a, input, select, textarea')) onRowClick(row); } : undefined}
               className={onRowClick ? 'cursor-pointer' : undefined}
               role={onRowClick ? 'button' : undefined}
               tabIndex={onRowClick ? 0 : undefined}
-              onKeyDown={onRowClick ? (e) => { if (e.key === 'Enter') onRowClick(row); } : undefined}
+              onKeyDown={onRowClick ? (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onRowClick(row); } } : undefined}
             >
               {columns.map((col) => (
                 <td key={col.key} className={col.className}>
@@ -132,11 +131,12 @@ interface PaginationProps {
 }
 
 export function Pagination({ page, totalPages, total, pageSize, onChange, className }: PaginationProps) {
-  const from = (page - 1) * pageSize + 1;
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const firstPage = Math.max(1, Math.min(page - 2, totalPages - 4));
   const to = Math.min(page * pageSize, total);
 
   return (
-    <div className={cn('flex items-center justify-between px-4 py-3 border-t border-slate-200', className)}>
+    <div className={cn('flex flex-wrap gap-3 items-center justify-between px-4 py-3 border-t border-slate-200', className)}>
       <p className="text-xs text-slate-500">
         Showing <span className="font-medium">{from}–{to}</span> of <span className="font-medium">{total}</span>
       </p>
@@ -150,10 +150,12 @@ export function Pagination({ page, totalPages, total, pageSize, onChange, classN
           ← Prev
         </button>
         {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-          const p = i + 1;
+          const p = firstPage + i;
           return (
             <button
               key={p}
+              aria-label={`Page ${p}`}
+              aria-current={p === page ? 'page' : undefined}
               onClick={() => onChange(p)}
               className={cn(
                 'px-2.5 py-1 text-xs rounded border transition-colors',
@@ -168,7 +170,7 @@ export function Pagination({ page, totalPages, total, pageSize, onChange, classN
         })}
         <button
           onClick={() => onChange(page + 1)}
-          disabled={page >= totalPages}
+          disabled={total === 0 || page >= totalPages}
           className="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           aria-label="Next page"
         >

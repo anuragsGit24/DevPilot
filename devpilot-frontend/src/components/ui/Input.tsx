@@ -15,7 +15,8 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, hint, icon, iconRight, className, id, ...props }, ref) => {
-    const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className="w-full">
         {label && (
@@ -45,7 +46,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {iconRight && (
-            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-slate-400">
+            <div className="absolute inset-y-0 right-3 flex items-center text-slate-400">
               {iconRight}
             </div>
           )}
@@ -76,7 +77,8 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, error, hint, className, id, ...props }, ref) => {
-    const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className="w-full">
         {label && (
@@ -88,7 +90,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           ref={ref}
           id={inputId}
-          aria-describedby={error ? `${inputId}-error` : undefined}
+          aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           aria-invalid={!!error}
           className={cn(
             'form-input min-h-[80px] resize-y',
@@ -101,7 +103,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           <p id={`${inputId}-error`} className="form-error" role="alert">{error}</p>
         )}
         {hint && !error && (
-          <p className="text-xs text-slate-400 mt-1">{hint}</p>
+          <p id={`${inputId}-hint`} className="text-xs text-slate-500 mt-1">{hint}</p>
         )}
       </div>
     );
@@ -129,7 +131,8 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, error, hint, options, placeholder, className, id, ...props }, ref) => {
-    const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className="w-full">
         {label && (
@@ -140,10 +143,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         <select
           ref={ref}
           id={inputId}
-          aria-describedby={error ? `${inputId}-error` : undefined}
+          aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           aria-invalid={!!error}
           className={cn(
-            'form-input pr-8 appearance-none cursor-pointer',
+            'form-input pr-8 cursor-pointer',
             error && 'border-red-400 focus:ring-red-500',
             className,
           )}
@@ -157,7 +160,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           ))}
         </select>
         {error && <p id={`${inputId}-error`} className="form-error" role="alert">{error}</p>}
-        {hint && !error && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+        {hint && !error && <p id={`${inputId}-hint`} className="text-xs text-slate-500 mt-1">{hint}</p>}
       </div>
     );
   },
@@ -186,6 +189,7 @@ export function SearchInput({ value, onClear, ...props }: SearchInputProps) {
       />
       {value && onClear && (
         <button
+          type="button"
           onClick={onClear}
           className="absolute inset-y-0 right-2 flex items-center px-1 text-slate-400 hover:text-slate-600"
           aria-label="Clear search"

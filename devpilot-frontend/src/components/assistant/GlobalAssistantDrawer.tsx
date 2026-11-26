@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
 import { useAuth } from '@/app/providers/AuthProvider';
-import { Badge } from '@/components/ui/Badge';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/Button';
 import { formatDate } from '@/lib/date';
 import {
@@ -9,18 +9,14 @@ import {
   Send,
   Bot,
   X,
-  Trash2,
   FileText,
   Layers,
   Cpu,
   Calendar,
   AlertTriangle,
-  ChevronDown,
   Minimize2,
   Maximize2,
-  HelpCircle,
   ArrowRight,
-  ShieldCheck,
 } from 'lucide-react';
 
 interface GlobalAssistantDrawerProps {
@@ -43,14 +39,17 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
 
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
-  const setIsOpen = controlledOnClose !== undefined ? (open: boolean) => { if (!open) controlledOnClose(); } : setInternalIsOpen;
+  const setIsOpen = useCallback((open: boolean) => {
+    if (controlledOnClose) { if (!open) controlledOnClose(); }
+    else setInternalIsOpen(open);
+  }, [controlledOnClose]);
 
   const [input, setInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const messages = assistantConversation?.messages ?? [];
+  const messages = useMemo(() => assistantConversation?.messages ?? [], [assistantConversation?.messages]);
   const activeSprint = sprints.find((s) => s.status === 'active') || sprints[0];
 
   // Auto-scroll to bottom of chat
@@ -82,11 +81,11 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    await sendAssistantMessage(text);
+    try { await sendAssistantMessage(text); } catch { setInput(text); }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void handleSend();
     }
@@ -94,7 +93,7 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
 
   const handleChipClick = async (promptText: string) => {
     if (isProcessing.assistantTyping) return;
-    await sendAssistantMessage(promptText);
+    try { await sendAssistantMessage(promptText); } catch { /* The provider displays the error. */ }
   };
 
   const promptSuggestions = [
@@ -126,56 +125,41 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
   ];
 
   return (
-    <>
+    <DialogPrimitive.Root open={isOpen} onOpenChange={setIsOpen}>
       {/* Floating Launcher Trigger (bottom-right) */}
       {!isOpen && (
-        <button
+        <DialogPrimitive.Trigger asChild><button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-40 group flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-navy-900 to-blue-600 hover:from-navy-800 hover:to-blue-500 text-white rounded-full shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-blue-500/25 border border-white/20"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-2 px-3 py-2.5 bg-navy-900 hover:bg-navy-800 text-white rounded-lg shadow-card border border-slate-600 transition-colors"
           title="Open AI Co-Pilot (Cmd+K)"
           aria-label="Open AI Assistant"
         >
           <div className="relative">
-            <Sparkles size={18} className="text-blue-300 animate-pulse" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-navy-900" />
+            <Sparkles size={16} className="text-slate-300" />
+
           </div>
-          <span className="text-xs font-bold tracking-tight">AI Co-Pilot</span>
+          <span className="text-xs font-bold tracking-tight">Assistant</span>
           <span className="hidden sm:inline-block text-2xs px-1.5 py-0.5 rounded bg-white/20 text-white font-mono">
             ⌘K
           </span>
-        </button>
+        </button></DialogPrimitive.Trigger>
       )}
 
-      {/* Drawer Overlay / Backdrop */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 transition-opacity"
-          onClick={() => setIsOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Sliding Drawer Container */}
-      <div
-        className={`fixed inset-y-0 right-0 z-50 bg-white shadow-2xl flex flex-col border-l border-slate-200 transition-all duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : 'translate-x-full'
-        } ${isExpanded ? 'w-full sm:w-[720px]' : 'w-full sm:w-[480px]'}`}
-      >
+      <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 bg-slate-900/40 z-50" />
+      <DialogPrimitive.Content aria-describedby={undefined} className={`fixed inset-y-0 right-0 z-50 max-w-full bg-white shadow-dialog flex flex-col border-l border-slate-200 ${isExpanded ? 'w-full sm:w-[720px]' : 'w-full sm:w-[480px]'}`}>
         {/* Drawer Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-navy-900 via-navy-800 to-blue-900 text-white flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-white text-slate-900 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center flex-shrink-0 text-blue-300">
+            <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 text-slate-500">
               <Sparkles size={18} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold tracking-tight text-white truncate">DevPilot AI SDLC Co-Pilot</h2>
-                <Badge variant="success" size="xs" dot>
-                  Online
-                </Badge>
+                <DialogPrimitive.Title className="text-sm font-semibold text-slate-900 truncate">DevPilot Assistant</DialogPrimitive.Title>
               </div>
-              <p className="text-2xs text-blue-200 truncate mt-0.5">
-                Active Project: <span className="font-semibold text-white">{activeProject.name || 'Workspace'}</span>
+              <p className="text-xs text-slate-500 truncate mt-0.5">
+                Active Project: <span className="font-medium text-slate-700">{activeProject.name || 'Workspace'}</span>
               </p>
             </div>
           </div>
@@ -183,14 +167,14 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors hidden sm:block"
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors hidden sm:block"
               title={isExpanded ? 'Collapse width' : 'Expand width'}
             >
               {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
             </button>
             <button
               onClick={() => setIsOpen(false)}
-              className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
               title="Close drawer (Esc)"
             >
               <X size={17} />
@@ -222,7 +206,7 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
               </span>
             )}
           </div>
-          <span className="text-slate-400 font-mono text-3xs">RAG v2.0</span>
+
         </div>
 
         {/* Message Thread Scroll Area */}
@@ -233,17 +217,16 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
                 <Bot size={28} />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-bold text-slate-900">How can I assist your SDLC today?</h3>
+                <h3 className="text-sm font-bold text-slate-900">How can I help?</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                  I have semantic access to your uploaded requirements, INVEST user stories, architecture blueprints,
-                  and sprint schedules.
+                  Ask about your project requirements, stories, architecture, or sprint plan.
                 </p>
               </div>
 
               {/* Quick suggestion buttons */}
               <div className="space-y-2 text-left pt-2">
                 <span className="text-2xs font-bold text-slate-400 uppercase tracking-wider px-1">
-                  Suggested Context Actions
+                  Suggested questions
                 </span>
                 <div className="grid grid-cols-1 gap-2">
                   {promptSuggestions.map((item, idx) => {
@@ -339,7 +322,7 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce" />
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.2s]" />
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:0.4s]" />
-                <span className="text-2xs text-slate-500 ml-1 font-medium">Synthesizing context...</span>
+                <span className="text-2xs text-slate-500 ml-1 font-medium">Preparing a response…</span>
               </div>
             </div>
           )}
@@ -380,6 +363,7 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              aria-label="Message the assistant"
               placeholder="Ask anything about requirements, stories, architecture, sprints..."
               className="w-full resize-none rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs px-3.5 py-2.5 max-h-32 min-h-[42px] leading-relaxed shadow-2xs pr-10"
               disabled={isProcessing.assistantTyping}
@@ -390,6 +374,7 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
               size="sm"
               disabled={!input.trim() || isProcessing.assistantTyping}
               className="absolute right-1.5 bottom-1.5 h-7 w-7 !p-0 rounded-lg flex items-center justify-center flex-shrink-0"
+              aria-label="Send message"
               title="Send message (Enter)"
             >
               <Send size={13} />
@@ -400,7 +385,8 @@ export function GlobalAssistantDrawer({ isOpen: controlledIsOpen, onClose: contr
             <span className="font-mono">DevPilot AI v1.0</span>
           </div>
         </div>
-      </div>
-    </>
+      </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

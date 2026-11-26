@@ -24,7 +24,7 @@ interface TabsProps {
 export function Tabs({ tabs, activeTab, onChange, className, variant = 'line' }: TabsProps) {
   if (variant === 'pill') {
     return (
-      <div className={cn('flex items-center gap-1 p-1 bg-slate-100 rounded-lg', className)} role="tablist">
+      <div className={cn('flex items-center gap-1 p-1 overflow-x-auto bg-slate-100 rounded-lg', className)} role="tablist">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -57,7 +57,7 @@ export function Tabs({ tabs, activeTab, onChange, className, variant = 'line' }:
   }
 
   return (
-    <div className={cn('border-b border-slate-200', className)}>
+    <div className={cn('border-b border-slate-200 overflow-x-auto', className)}>
       <nav className="-mb-px flex gap-0" role="tablist" aria-label="Tabs">
         {tabs.map((tab) => (
           <button

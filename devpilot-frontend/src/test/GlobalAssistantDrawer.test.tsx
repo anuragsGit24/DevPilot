@@ -49,7 +49,8 @@ describe('GlobalAssistantDrawer (Engineer 5)', () => {
 
     const trigger = screen.getByTitle('Open AI Co-Pilot (Cmd+K)');
     expect(trigger).toBeInTheDocument();
-    expect(screen.getByText('AI Co-Pilot')).toBeInTheDocument();
+    expect(screen.getByText('Assistant')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('opens drawer and displays active project context when launcher clicked', () => {
@@ -61,7 +62,7 @@ describe('GlobalAssistantDrawer (Engineer 5)', () => {
 
     fireEvent.click(screen.getByTitle('Open AI Co-Pilot (Cmd+K)'));
 
-    expect(screen.getByText('DevPilot AI SDLC Co-Pilot')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'DevPilot Assistant' })).toBeInTheDocument();
     expect(screen.getByText('Retail Banking System')).toBeInTheDocument();
     expect(screen.getByText('Hello Engineer! How can I assist your SDLC today?')).toBeInTheDocument();
   });
@@ -94,7 +95,7 @@ describe('GlobalAssistantDrawer (Engineer 5)', () => {
     );
 
     fireEvent.click(screen.getByTitle('Open AI Co-Pilot (Cmd+K)'));
-    expect(screen.getByText('DevPilot AI SDLC Co-Pilot')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'DevPilot Assistant' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Close drawer (Esc)'));
     expect(screen.getByTitle('Open AI Co-Pilot (Cmd+K)')).toBeInTheDocument();

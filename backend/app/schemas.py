@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -110,14 +110,21 @@ class ResetPasswordRequest(BaseModel):
 
 
 # Project Schemas
+ProjectStatus = Literal["active", "on_hold", "completed", "archived"]
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
+    status: ProjectStatus = "active"
+    tags: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
+    status: ProjectStatus | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
 
 
 class ProjectMemberAdd(BaseModel):
@@ -143,11 +150,17 @@ class ProjectRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
 
+    status: ProjectStatus = "active"
+    tags: list[str] = Field(default_factory=list)
     updated_at: datetime
 
 
 # Requirement Schemas
+RequirementStatus = Literal["extracted", "in_review", "confirmed", "rejected"]
+
+
 class RequirementCreate(BaseModel):
+    status: RequirementStatus = "extracted"
     requirement_key: str = Field(min_length=1, max_length=30)
     title: str = Field(min_length=1, max_length=300)
     description: str = Field(min_length=1)
@@ -158,12 +171,21 @@ class RequirementCreate(BaseModel):
     embedding_metadata: dict | None = None
 
 
+class RequirementUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    description: str | None = Field(default=None, min_length=1)
+    category: RequirementCategory | None = None
+    priority: MoSCoWPriority | None = None
+    status: RequirementStatus | None = None
+
+
 class RequirementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     project_id: uuid.UUID
     requirement_key: str
+    status: RequirementStatus = "extracted"
     title: str
     description: str
     category: RequirementCategory | None
@@ -297,7 +319,7 @@ class WorkItemCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     status: str | None = Field(default=None, max_length=80)
     payload: dict = Field(default_factory=dict)
-    source_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
     parent_id: uuid.UUID | None = None
 
 
@@ -305,7 +327,7 @@ class WorkItemUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     status: str | None = Field(default=None, max_length=80)
     payload: dict | None = None
-    source_ids: list[uuid.UUID] | None = None
+    source_ids: list[str] | None = None
     parent_id: uuid.UUID | None = None
 
 

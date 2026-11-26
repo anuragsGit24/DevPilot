@@ -1,9 +1,6 @@
 import React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cn } from '@/lib/utils';
-
-// ============================================================
-// Drawer (Side Panel) Component
-// ============================================================
 
 interface DrawerProps {
   open: boolean;
@@ -15,70 +12,26 @@ interface DrawerProps {
   side?: 'right' | 'left';
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
-
-const drawerSizes = {
-  sm: 'w-80',
-  md: 'w-96',
-  lg: 'w-[520px]',
-  xl: 'w-[680px]',
-};
+const drawerSizes = { sm: 'w-80', md: 'w-96', lg: 'w-[520px]', xl: 'w-[680px]' };
 
 export function Drawer({ open, onClose, title, description, children, footer, side = 'right', size = 'md' }: DrawerProps) {
-  React.useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
+  const descriptionId = React.useId();
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      {/* Panel */}
-      <div
-        className={cn(
-          'absolute top-0 bottom-0 bg-white shadow-dialog flex flex-col',
-          side === 'right' ? 'right-0 animate-slide-in-right' : 'left-0',
-          drawerSizes[size],
-        )}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? 'drawer-title' : undefined}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 flex-shrink-0">
-          <div>
-            {title && <h2 id="drawer-title" className="text-base font-semibold text-slate-900">{title}</h2>}
-            {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
+    <DialogPrimitive.Root open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-900/40" />
+        <DialogPrimitive.Content className={cn('fixed inset-y-0 z-50 max-w-[100vw] bg-white shadow-dialog flex flex-col', side === 'right' ? 'right-0 animate-slide-in-right' : 'left-0', drawerSizes[size])} aria-describedby={description ? descriptionId : undefined}>
+          <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-200 shrink-0">
+            <div className="min-w-0">
+              <DialogPrimitive.Title className="text-base font-semibold text-slate-900">{title || 'Details'}</DialogPrimitive.Title>
+              {description && <DialogPrimitive.Description id={descriptionId} className="text-xs text-slate-500 mt-0.5">{description}</DialogPrimitive.Description>}
+            </div>
+            <DialogPrimitive.Close className="p-2 rounded-md text-slate-500 hover:bg-slate-100" aria-label="Close panel">×</DialogPrimitive.Close>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            aria-label="Close panel"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {children}
-        </div>
-        {/* Footer */}
-        {footer && (
-          <div className="flex-shrink-0 border-t border-slate-200 px-5 py-4 flex items-center justify-end gap-3">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
+          <div className={cn('flex-1 min-h-0 overflow-y-auto', title !== 'Navigation' && 'px-5 py-4')}>{children}</div>
+          {footer && <div className="shrink-0 border-t border-slate-200 px-5 py-4 flex flex-wrap justify-end gap-3">{footer}</div>}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

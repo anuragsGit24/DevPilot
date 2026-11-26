@@ -66,23 +66,13 @@ interface MetricCardProps {
   color?: 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'slate';
 }
 
-const metricColors = {
-  blue:   { bg: 'bg-blue-50', icon: 'bg-blue-100 text-blue-600', text: 'text-blue-600' },
-  green:  { bg: 'bg-green-50', icon: 'bg-green-100 text-green-600', text: 'text-green-600' },
-  amber:  { bg: 'bg-amber-50', icon: 'bg-amber-100 text-amber-600', text: 'text-amber-600' },
-  red:    { bg: 'bg-red-50', icon: 'bg-red-100 text-red-600', text: 'text-red-600' },
-  purple: { bg: 'bg-purple-50', icon: 'bg-purple-100 text-purple-600', text: 'text-purple-600' },
-  slate:  { bg: 'bg-slate-50', icon: 'bg-slate-100 text-slate-600', text: 'text-slate-600' },
-};
-
-export function MetricCard({ label, value, icon, trend, className, sub, color = 'slate' }: MetricCardProps) {
-  const colors = metricColors[color];
+export function MetricCard({ label, value, icon, trend, className, sub }: MetricCardProps) {
   return (
     <Card className={cn('p-5', className)}>
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-          <p className={cn('text-2xl font-bold', colors.text)}>{value}</p>
+          <p className={cn('text-2xl font-semibold tabular-nums tracking-tight text-slate-900')}>{value}</p>
           {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
           {trend && (
             <p className={cn('text-xs mt-1 font-medium', trend.value >= 0 ? 'text-green-600' : 'text-red-600')}>
@@ -91,7 +81,7 @@ export function MetricCard({ label, value, icon, trend, className, sub, color = 
           )}
         </div>
         {icon && (
-          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', colors.icon)}>
+          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', 'bg-slate-100 text-slate-500')}>
             {icon}
           </div>
         )}

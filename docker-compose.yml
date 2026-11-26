@@ -27,9 +27,11 @@ services:
         required: false
     environment:
       DEVPILOT_ENVIRONMENT: development
-      DEVPILOT_EMBEDDING_PROVIDER: api
+      DEVPILOT_EMBEDDING_PROVIDER: ${DEVPILOT_EMBEDDING_PROVIDER:-mock}
       DEVPILOT_DATABASE_URL: postgresql+asyncpg://devpilot:devpilot@postgres:5432/devpilot
       DEVPILOT_CORS_ORIGINS: '["http://localhost:5173"]'
+    volumes:
+      - ./backend/app:/app/app
     ports:
       - "8000:8000"
     healthcheck:

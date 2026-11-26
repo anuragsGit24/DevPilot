@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { ProjectDataProvider, useProjectData } from '../app/providers/ProjectDataProvider';
 import { ToastProvider } from '../app/providers/ToastProvider';
 import { api } from '../lib/api';
@@ -22,6 +23,7 @@ vi.mock('@/lib/api', () => ({
     deleteWorkItem: vi.fn(),
     listArtifacts: vi.fn().mockResolvedValue([]),
     getArtifact: vi.fn(),
+    getAssistantConversation: vi.fn().mockImplementation(async (projectId: string) => ({projectId, messages: []})),
   },
 }));
 
@@ -177,13 +179,20 @@ describe('Project Data Scoping and Cross-Project Isolation (Engineer 3)', () => 
     });
   });
 
+  it('selects the project from a direct workspace URL', async () => {
+    render(<MemoryRouter initialEntries={['/projects/proj-B/overview']}><ToastProvider><ProjectDataProvider><ScopingConsumer /></ProjectDataProvider></ToastProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId('active-project-id')).toHaveTextContent('proj-B'));
+    await waitFor(() => expect(screen.getByTestId('arch-pattern')).toHaveTextContent('Event-Driven Microservices'));
+    expect(screen.queryByText('Ledger Ingestion')).not.toBeInTheDocument();
+  });
+
   it('scopes stories, sprints, and architecture strictly to the active project', async () => {
     render(
-      <ToastProvider>
+      <MemoryRouter><ToastProvider>
         <ProjectDataProvider>
           <ScopingConsumer />
         </ProjectDataProvider>
-      </ToastProvider>
+      </ToastProvider></MemoryRouter>
     );
 
     // Initial load defaults to Project A
@@ -205,11 +214,11 @@ describe('Project Data Scoping and Cross-Project Isolation (Engineer 3)', () => 
 
   it('switching between two projects completely isolates and reloads project data without leaks', async () => {
     render(
-      <ToastProvider>
+      <MemoryRouter><ToastProvider>
         <ProjectDataProvider>
           <ScopingConsumer />
         </ProjectDataProvider>
-      </ToastProvider>
+      </ToastProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -262,11 +271,11 @@ describe('Project Data Scoping and Cross-Project Isolation (Engineer 3)', () => 
     (api.updateWorkItem as any).mockResolvedValue({ id: 'wi-sprint-a1' });
 
     render(
-      <ToastProvider>
+      <MemoryRouter><ToastProvider>
         <ProjectDataProvider>
           <ScopingConsumer />
         </ProjectDataProvider>
-      </ToastProvider>
+      </ToastProvider></MemoryRouter>
     );
 
     await waitFor(() => {

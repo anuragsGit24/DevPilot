@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useTheme } from '@/app/providers/ThemeProvider';
 import { ROLE_LABELS, ROLE_COLORS } from '@/types/permissions';
 import { useProjectData } from '@/app/providers/ProjectDataProvider';
-import { Bell, HelpCircle, Search, AlertTriangle, Sun, Moon } from 'lucide-react';
+import { HelpCircle, Search, AlertTriangle, Sun, Moon, Menu } from 'lucide-react';
 import { Avatar } from '@/components/ui/Misc';
+import { SearchInput } from '@/components/ui/Input';
 import { Dialog } from '@/components/ui/Dialog';
 
 // ============================================================
@@ -31,7 +32,7 @@ function buildBreadcrumbs(
       if (segments[2]) {
         const map: Record<string, string> = {
           overview: 'Overview', requirements: 'Requirements', artifacts: 'Artifacts',
-          sprints: 'Sprint Planning', evaluations: 'Evaluations', assistant: 'AI Assistant',
+          sprints: 'Sprint Planning', evaluations: 'Evaluations', assistant: 'AI Assistant', traceability: 'Traceability', export: 'Export Hub',
         };
         if (map[segments[2]]) crumbs.push({ label: map[segments[2]] });
       }
@@ -55,23 +56,19 @@ function buildBreadcrumbs(
   return crumbs;
 }
 
-export function Topbar() {
+export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { user, isDemoMode } = useAuth();
-  const { projects } = useProjectData();
+  const { projects, activeProject } = useProjectData();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
-  const params = useParams();
-  const [showNotifications, setShowNotifications] = useState(false);
+  const projectParam = /^\/projects\/([^/]+)/.exec(location.pathname)?.[1];
+  const projectId = projectParam === 'new' ? undefined : projectParam;
+  const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const crumbs = buildBreadcrumbs(location.pathname, params.projectId, projects);
-  const notifications = [
-    { id: 1, title: 'Sprint 2 velocity warning', desc: 'Allocation exceeds capacity by 13 pts', time: '5m ago', unread: true },
-    { id: 3, title: 'REQ-007 flagged for review', desc: 'Possible contradiction with REQ-014', time: '3h ago', unread: false },
-  ];
-  const unreadCount = notifications.filter((n) => n.unread).length;
-  const helpProjectId = params.projectId ?? projects[0]?.id;
+  const crumbs = buildBreadcrumbs(location.pathname, projectId, projects);
+  const helpProjectId = projectId ?? (activeProject.id || projects[0]?.id);
   const helpLinks = [
     { label: 'Dashboard', description: 'Review project health and recent activity.', to: '/dashboard' },
     { label: 'Requirements', description: 'Ingest, review, and confirm requirements.', to: `/projects/${helpProjectId}/requirements` },
@@ -79,21 +76,26 @@ export function Topbar() {
     { label: 'Sprint planning', description: 'Allocate stories and review sprint capacity.', to: `/projects/${helpProjectId}/sprints` },
     { label: 'Evaluations', description: 'Review benchmark runs and quality metrics.', to: `/projects/${helpProjectId}/evaluations` },
     { label: 'Prompt library', description: 'Browse prompt versions and test templates.', to: '/prompts' },
-  ];
+  ].filter((item) => helpProjectId || !item.to.includes('/projects/undefined'));
+  const searchResults = [
+    ...helpLinks,
+    ...projects.map((project) => ({ label: project.name, description: 'Project workspace', to: `/projects/${project.id}/overview` })),
+  ].filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <header
       className={cn(
-        'h-[60px] bg-white border-b border-slate-200 flex items-center px-6 gap-4 sticky top-0 z-40',
+        'h-12 shrink-0 bg-white border-b border-slate-200 flex items-center px-3 sm:px-6 gap-1 sm:gap-3 sticky top-0 z-40',
       )}
       aria-label="Top navigation bar"
     >
+      <button type="button" onClick={onMenuToggle} aria-label="Open navigation" className="md:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100"><Menu size={20} /></button>
       {/* Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="flex-1 min-w-0">
-        <ol className="flex items-center gap-1.5 text-sm flex-wrap">
+        <ol className="flex items-center gap-1.5 text-sm overflow-hidden whitespace-nowrap">
           {crumbs.map((crumb, i) => (
-            <li key={i} className="flex items-center gap-1.5">
-              {i > 0 && <span className="text-slate-300" aria-hidden="true">/</span>}
+            <li key={i} className="hidden sm:flex items-center gap-1.5 last:flex min-w-0 shrink-0 last:shrink">
+              {i > 0 && <span className="hidden sm:inline text-slate-300" aria-hidden="true">/</span>}
               {crumb.href && i < crumbs.length - 1 ? (
                 <Link to={crumb.href} className="text-slate-500 hover:text-slate-800 transition-colors truncate max-w-[150px]">
                   {crumb.label}
@@ -116,45 +118,6 @@ export function Topbar() {
       >
         <Search size={16} />
       </button>
-
-      {/* Notifications */}
-      <div className="relative">
-        <button
-          onClick={() => setShowNotifications(!showNotifications)}
-          className="relative p-2 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-          aria-label={`Notifications, ${unreadCount} unread`}
-        >
-          <Bell size={16} />
-          {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" aria-hidden="true" />
-          )}
-        </button>
-        {showNotifications && (
-          <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-card-hover border border-slate-200 z-50 animate-fade-in">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
-              <button className="text-xs text-blue-600 hover:underline">Mark all read</button>
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={cn('px-4 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 cursor-pointer', n.unread && 'bg-blue-50/40')}
-                >
-                  <div className="flex items-start gap-2">
-                    {n.unread && <div className="w-1.5 h-1.5 rounded-full bg-blue-600 flex-shrink-0 mt-2" />}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-900">{n.title}</p>
-                      <p className="text-xs text-slate-500 truncate">{n.desc}</p>
-                      <p className="text-2xs text-slate-400 mt-0.5">{n.time}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* Theme Toggle */}
       <button
@@ -180,7 +143,7 @@ export function Topbar() {
 
       {/* Demo mode indicator */}
       {isDemoMode && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-200">
+        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-200">
             <AlertTriangle size={13} className="text-amber-600" />
             <span className="text-xs font-medium text-amber-700">Demo Mode</span>
             {user && (
@@ -198,6 +161,15 @@ export function Topbar() {
         </Link>
       )}
 
+      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} title="Search workspace" description="Find projects and workspace pages.">
+        <SearchInput aria-label="Search workspace" autoFocus placeholder="Search projects and pages…" value={query} onChange={(event) => setQuery(event.target.value)} onClear={() => setQuery('')} />
+        <div className="mt-4 space-y-1">
+          {searchResults.map((item) => <Link key={item.to} to={item.to} onClick={() => setSearchOpen(false)} className="block p-3 rounded-md hover:bg-slate-50">
+            <span className="block text-sm font-medium text-slate-900">{item.label}</span><span className="block text-xs text-slate-500">{item.description}</span>
+          </Link>)}
+          {searchResults.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No results. Try a project name or page.</p>}
+        </div>
+      </Dialog>
       <Dialog
         open={showHelp}
         onClose={() => setShowHelp(false)}

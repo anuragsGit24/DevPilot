@@ -263,22 +263,99 @@ class LLMClient:
         Generates schema-compliant, realistic SDLC artifacts based on requirements extracted by Engineer 1.
         Used for fast CI, unit testing, and offline evaluation without external API costs.
         """
-        # Extract requirement keys from prompt if present
+        # Extract requirement keys and rich requirement statements from prompt
         req_keys = re.findall(r"(REQ-\d+)", user_prompt)
         if not req_keys:
             req_keys = ["REQ-001"]
+
+        parsed_reqs: dict[str, dict[str, str]] = {}
+        for line in user_prompt.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("- [REQ-") and "]" in line_str:
+                try:
+                    k = line_str.split("]")[0].split("[")[1]
+                    remainder = line_str.split("]", 1)[1].strip()
+                    meta_str = ""
+                    if remainder.startswith("(") and ")" in remainder:
+                        meta_str, remainder = remainder.split(")", 1)
+                        meta_str = meta_str.lstrip("(")
+                    if ":" in remainder:
+                        title_part, desc_part = remainder.split(":", 1)
+                    else:
+                        title_part, desc_part = remainder, remainder
+                    prio = "must" if "must" in meta_str.lower() else "should" if "should" in meta_str.lower() else "could"
+                    parsed_reqs[k] = {
+                        "title": title_part.strip() or desc_part.strip()[:60],
+                        "desc": desc_part.strip() or title_part.strip(),
+                        "priority": prio,
+                    }
+                except Exception:
+                    pass
 
         schema_name = response_schema.__name__ if response_schema else ""
 
         if "UserStories" in schema_name or "stories" in system_prompt.lower():
             stories = []
             for i, key in enumerate(req_keys, 1):
+                item = parsed_reqs.get(key, {})
+                raw_desc = item.get("desc", "")
+                raw_title = item.get("title", "")
+                dl = raw_desc.lower()
+
+                # Dynamic persona inference
+                if any(w in dl for w in ("physician", "doctor", "prescriber")):
+                    persona = "Licensed Prescriber"
+                elif any(w in dl for w in ("pharmacist", "pharmacy")):
+                    persona = "Clinical Pharmacist"
+                elif any(w in dl for w in ("patient", "customer", "pickup", "dispens")):
+                    persona = "Registered Patient"
+                elif any(w in dl for w in ("security", "compliance", "credential", "dea", "audit")):
+                    persona = "Compliance Officer"
+                elif any(w in dl for w in ("admin", "administrator")):
+                    persona = "System Administrator"
+                else:
+                    persona = "Authorized User"
+
+                # Dynamic action inference
+                clean_action = re.sub(
+                    r"(?i)^(the\s+(system|application|portal|service)|users?|patients?|pharmacists?|physicians?)\s+(must|shall|should|could|must\s+be\s+able\s+to|be\s+able\s+to|needs?\s+to)\s+",
+                    "",
+                    raw_desc,
+                ).strip()
+                if not clean_action:
+                    clean_action = f"interact with capability defined in {key}"
+                else:
+                    clean_action = clean_action[0].lower() + clean_action[1:]
+
+                # Dynamic benefit inference
+                if "prior to" in dl:
+                    so_that = "regulatory compliance and authorization checks are verified prior to execution"
+                elif any(w in dl for w in ("warn", "allergy", "contraindication")):
+                    so_that = "adverse interactions and clinical risks are prevented before dispensing"
+                elif any(w in dl for w in ("sms", "token", "encrypt", "verif")):
+                    so_that = "patient authentication and identity verification remain secure and tamper-proof"
+                elif "within" in dl and any(w in dl for w in ("millisecond", "second", "latency")):
+                    so_that = "operations meet real-time performance latency and SLA standards"
+                else:
+                    so_that = "business workflows can be completed reliably, accurately, and securely"
+
+                # Dynamic title inference
+                if raw_title and len(raw_title) > 5 and not raw_title.startswith("REQ-"):
+                    story_title = raw_title[:80].strip().rstrip(".")
+                    story_title = story_title[0].upper() + story_title[1:]
+                else:
+                    story_title = clean_action[:80].strip().rstrip(".")
+                    story_title = story_title[0].upper() + story_title[1:]
+
+                prio = item.get("priority", "must")
+                pts = 5 if prio == "must" else 3 if prio == "should" else 2
+
                 stories.append({
                     "story_key": f"US-{i:03d}",
-                    "title": f"Implement user capability for {key}",
-                    "as_a": "Corporate User",
-                    "i_want": f"to interact with capability defined in {key}",
-                    "so_that": "business workflows can be completed reliably and securely",
+                    "title": story_title,
+                    "as_a": persona,
+                    "i_want": clean_action,
+                    "so_that": so_that,
                     "invest_evaluation": {
                         "is_independent": True,
                         "is_negotiable": True,
@@ -286,14 +363,14 @@ class LLMClient:
                         "is_estimable": True,
                         "is_small": True,
                         "is_testable": True,
-                        "notes": f"Verified against INVEST criteria for {key}",
+                        "notes": f"Grounded in source requirement {key} ({clean_action[:40]}...)",
                     },
-                    "estimated_story_points": 3,
-                    "priority": "must",
+                    "estimated_story_points": pts,
+                    "priority": prio,
                     "source_requirement_keys": [key],
                     "acceptance_criteria_hints": [
-                        f"Ensure {key} validation passes",
-                        f"Return appropriate errors when {key} constraints are violated",
+                        f"Verify {clean_action[:50]} succeeds for {persona}",
+                        f"Enforce validation and boundary constraints for {key}",
                     ],
                 })
             parsed = {
@@ -304,25 +381,28 @@ class LLMClient:
         elif "AcceptanceCriteria" in schema_name or "given-when-then" in system_prompt.lower():
             criteria_list = []
             for i, key in enumerate(req_keys, 1):
+                item = parsed_reqs.get(key, {})
+                t = item.get("title") or key
+                d = item.get("desc") or f"requirement {key}"
                 criteria_list.extend([
                     {
                         "criteria_key": f"AC-{i:03d}-1",
                         "story_key": f"US-{i:03d}",
-                        "title": f"Successful Execution of {key}",
+                        "title": f"Successful Execution: {t[:60]}",
                         "scenario_type": "happy_path",
-                        "given": f"the system is operational and user has valid credentials for {key}",
-                        "when": f"the user submits a valid request matching {key}",
-                        "then": "the system processes the request successfully and returns HTTP 200/201",
+                        "given": f"the system is operational and user credentials meet {key} requirements",
+                        "when": f"a valid request is submitted to {d[:120]}",
+                        "then": "the system completes the operation successfully with HTTP 200/201 and audit logs recorded",
                         "source_requirement_keys": [key],
                     },
                     {
                         "criteria_key": f"AC-{i:03d}-2",
                         "story_key": f"US-{i:03d}",
-                        "title": f"Validation Boundary Failure for {key}",
+                        "title": f"Validation and Security Failure: {t[:60]}",
                         "scenario_type": "boundary",
-                        "given": f"the user submits input violating boundary limits for {key}",
-                        "when": "the submission is validated",
-                        "then": "the system rejects the payload with HTTP 422 Unprocessable Entity",
+                        "given": f"the request fails validation or security criteria for {key}",
+                        "when": "the submission is evaluated by the verification engine",
+                        "then": "the system rejects the payload with HTTP 422 Unprocessable Entity or 403 Forbidden",
                         "source_requirement_keys": [key],
                     },
                 ])
@@ -334,33 +414,36 @@ class LLMClient:
         elif "TestCases" in schema_name or "test cases" in system_prompt.lower():
             test_cases = []
             for i, key in enumerate(req_keys, 1):
+                item = parsed_reqs.get(key, {})
+                t = item.get("title") or key
+                d = item.get("desc") or f"requirement {key}"
                 test_cases.extend([
                     {
                         "test_key": f"TC-{i:03d}-F",
-                        "title": f"Verify Functional Behavior for {key}",
+                        "title": f"Verify Functional Behavior: {t[:60]}",
                         "category": "functional",
                         "priority": "high",
-                        "preconditions": ["System is online", "Database seeded"],
+                        "preconditions": ["System is online", f"Precondition data initialized for {key}"],
                         "steps": [
-                            f"1. Authenticate as authorized user",
-                            f"2. Issue request fulfilling {key}",
-                            f"3. Assert response body and status code",
+                            f"1. Authenticate with appropriate enterprise permissions",
+                            f"2. Issue request fulfilling: {d[:100]}",
+                            f"3. Assert response status code, payload schema, and event telemetry",
                         ],
-                        "expected_result": f"System executes successfully according to {key}",
+                        "expected_result": f"System executes successfully according to {key}: {d[:120]}",
                         "test_data": {"requirement_key": key, "status": "active"},
                         "source_requirement_keys": [key],
                     },
                     {
                         "test_key": f"TC-{i:03d}-S",
-                        "title": f"Verify Security and Authorization for {key}",
+                        "title": f"Verify Security and Guardrails: {t[:60]}",
                         "category": "security",
                         "priority": "critical",
-                        "preconditions": ["No bearer token provided"],
+                        "preconditions": [f"Missing or invalid credentials for {key}"],
                         "steps": [
-                            f"1. Attempt accessing resource for {key} without credentials",
-                            f"2. Verify HTTP 401 Unauthorized is returned",
+                            f"1. Attempt accessing resource for {key} without authorized credentials",
+                            f"2. Verify HTTP 401 Unauthorized or 403 Forbidden is returned",
                         ],
-                        "expected_result": "Unauthorized requests are blocked with HTTP 401",
+                        "expected_result": f"Unauthorized requests for {key} are blocked and audited",
                         "test_data": {"auth": "missing"},
                         "source_requirement_keys": [key],
                     },

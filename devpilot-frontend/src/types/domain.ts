@@ -103,6 +103,7 @@ export interface SourceDocument {
 // ------ Requirement ------
 
 export interface Requirement {
+  backendSource?: 'requirements';
   id: string;
   apiId?: string;
   projectId: string;

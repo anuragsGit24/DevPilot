@@ -1,7 +1,7 @@
 // DevPilot Enterprise API Client
 // Handles authentication, JWT tokens, RBAC, and error handling
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '');
 
 export interface TokenResponse {
   access_token: string;
@@ -40,12 +40,15 @@ export interface ApiProject {
   created_by: string;
   created_at: string;
   updated_at: string;
+  status?: 'active' | 'on_hold' | 'completed' | 'archived';
+  tags?: string[];
 }
 
 export interface ApiRequirement {
   id: string;
   project_id: string;
   requirement_key: string;
+  status?: 'extracted' | 'in_review' | 'confirmed' | 'rejected';
   title: string;
   description: string;
   category: string | null;
@@ -416,6 +419,14 @@ class ApiClient {
     return this.request<ApiRequirement[]>(`/projects/${projectId}/requirements`);
   }
 
+  public async createRequirement(projectId: string, payload: { requirement_key: string; title: string; description: string; category?: string; priority?: string; status?: string }) {
+    return this.request<ApiRequirement>(`/projects/${projectId}/requirements`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  public async updateRequirement(projectId: string, requirementId: string, payload: { title?: string; description?: string; category?: string; priority?: string; status?: string }) {
+    return this.request<ApiRequirement>(`/projects/${projectId}/requirements/${requirementId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  }
+
   public async uploadRequirements(projectId: string, file: File): Promise<ApiRequirementsUpload> {
     const form = new FormData();
     form.append('file', file);
@@ -436,7 +447,7 @@ class ApiClient {
     });
   }
 
-  public async createProject(payload: { name: string; description?: string }): Promise<ApiProject> {
+  public async createProject(payload: { name: string; description?: string; tags?: string[]; status?: string }): Promise<ApiProject> {
     return this.request<ApiProject>('/projects', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -445,11 +456,21 @@ class ApiClient {
 
   public async updateProject(
     projectId: string,
-    payload: { name?: string; description?: string },
+    payload: { name?: string; description?: string; tags?: string[]; status?: string },
   ): Promise<ApiProject> {
     return this.request<ApiProject>(`/projects/${projectId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    });
+  }
+
+  public async getAssistantConversation(projectId: string) {
+    return this.request<import('@/types/domain').AssistantConversation>(`/projects/${projectId}/assistant`);
+  }
+
+  public async sendAssistantMessage(projectId: string, text: string) {
+    return this.request<import('@/types/domain').AssistantConversation>(`/projects/${projectId}/assistant/messages`, {
+      method: 'POST', body: JSON.stringify({ text }),
     });
   }
 

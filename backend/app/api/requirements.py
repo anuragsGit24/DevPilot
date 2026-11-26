@@ -16,6 +16,8 @@ from app.ingestion.validation import UploadValidationError, validate_upload
 from app.models import Requirement, RequirementChunk
 from app.schemas import (
     RequirementRead,
+    RequirementCreate,
+    RequirementUpdate,
     RequirementSearchRequest,
     RequirementSearchResponse,
     RequirementSearchResult,
@@ -41,18 +43,30 @@ async def upload_requirements(
     except (UploadValidationError, DocumentParseError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    extracted = extract_requirements(document.text)
+    # Query existing requirements for this project to support idempotent re-upload
+    existing_stmt = select(Requirement).where(Requirement.project_id == project_id)
+    existing_res = await session.execute(existing_stmt)
+    all_existing = list(existing_res.scalars().all())
+    doc_name = Path(document.filename or "").name
+    same_doc_existing = {r.requirement_key: r for r in all_existing if r.source_document == doc_name}
+
+    max_idx = 0
+    for r in all_existing:
+        if r.requirement_key.startswith("REQ-"):
+            try:
+                max_idx = max(max_idx, int(r.requirement_key.split("-")[1]))
+            except (ValueError, IndexError):
+                pass
+
+    start_index = 1 if same_doc_existing or not all_existing else max_idx + 1
+    extracted = extract_requirements(document.text, start_index=start_index)
     if not extracted:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="No requirement statements were found in the uploaded document.",
         )
     settings = get_settings()
-
-    # Query existing requirements for this project to support idempotent re-upload
-    existing_stmt = select(Requirement).where(Requirement.project_id == project_id)
-    existing_res = await session.execute(existing_stmt)
-    existing_map = {r.requirement_key: r for r in existing_res.scalars().all()}
+    existing_map = {r.requirement_key: r for r in all_existing}
 
     requirements: list[Requirement] = []
     chunks: list[RequirementChunk] = []
@@ -141,6 +155,43 @@ async def list_requirements(
         stmt = stmt.where(Requirement.priority == priority)
     result = await session.execute(stmt.order_by(Requirement.requirement_key))
     return list(result.scalars().all())
+
+
+@router.post("", response_model=RequirementRead, status_code=201)
+async def create_requirement(request: Request, project_id: uuid.UUID, payload: RequirementCreate,
+                             current_user: CurrentUser, session: DbSession):
+    await verify_project_access(project_id, current_user, session, "requirements:edit")
+    exists = await session.scalar(select(Requirement.id).where(
+        Requirement.project_id == project_id, Requirement.requirement_key == payload.requirement_key))
+    if exists:
+        raise HTTPException(409, "A requirement with this key already exists.")
+    item = Requirement(project_id=project_id, created_by=current_user.id, **payload.model_dump())
+    session.add(item)
+    await session.flush()
+    await record_audit_log(session=session, action="REQUIREMENT_CREATED", user_id=current_user.id,
+                           entity_type="requirement", entity_id=str(item.id), entity_title=item.title,
+                           ip_address=get_client_ip(request))
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+@router.patch("/{requirement_id}", response_model=RequirementRead)
+async def update_requirement(request: Request, project_id: uuid.UUID, requirement_id: uuid.UUID,
+                             payload: RequirementUpdate, current_user: CurrentUser, session: DbSession):
+    await verify_project_access(project_id, current_user, session, "requirements:edit")
+    item = await session.scalar(select(Requirement).where(
+        Requirement.id == requirement_id, Requirement.project_id == project_id))
+    if item is None:
+        raise HTTPException(404, "Requirement not found.")
+    for key, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
+        setattr(item, key, value)
+    await record_audit_log(session=session, action="REQUIREMENT_UPDATED", user_id=current_user.id,
+                           entity_type="requirement", entity_id=str(item.id), entity_title=item.title,
+                           ip_address=get_client_ip(request))
+    await session.commit()
+    await session.refresh(item)
+    return item
 
 
 @router.post("/search", response_model=RequirementSearchResponse)

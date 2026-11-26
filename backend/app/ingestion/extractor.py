@@ -19,7 +19,7 @@ _REQUIREMENT_MARKER = re.compile(
 _BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
-def extract_requirements(text: str) -> list[ExtractedRequirement]:
+def extract_requirements(text: str, start_index: int = 1) -> list[ExtractedRequirement]:
     candidates: list[str] = []
     for paragraph in text.splitlines():
         is_bullet = bool(_BULLET.match(paragraph))
@@ -28,7 +28,7 @@ def extract_requirements(text: str) -> list[ExtractedRequirement]:
             candidates.extend(_split_atomic_requirements(cleaned))
 
     requirements: list[ExtractedRequirement] = []
-    for index, description in enumerate(candidates, start=1):
+    for index, description in enumerate(candidates, start=start_index):
         priority = _priority_for(description)
         requirements.append(
             ExtractedRequirement(
@@ -70,9 +70,9 @@ def _priority_for(description: str) -> MoSCoWPriority:
 def _category_for(description: str) -> RequirementCategory:
     value = description.lower()
     keyword_groups = (
-        (RequirementCategory.security, ("security", "authenticate", "authorize", "encrypt", "password")),
-        (RequirementCategory.performance, ("latency", "performance", "response time", "throughput", "scale")),
-        (RequirementCategory.usability, ("accessible", "usability", "intuitive", "screen reader")),
+        (RequirementCategory.security, ("security", "authenticate", "authorize", "encrypt", "password", "credential", "licens", "permission", "verification", "token", "privacy")),
+        (RequirementCategory.performance, ("latency", "performance", "response time", "throughput", "scale", "millisecond", "second")),
+        (RequirementCategory.usability, ("accessible", "usability", "intuitive", "screen reader", "translation", "multilingual", "multi-language", "ui", "ux")),
     )
     for category, keywords in keyword_groups:
         if any(keyword in value for keyword in keywords):

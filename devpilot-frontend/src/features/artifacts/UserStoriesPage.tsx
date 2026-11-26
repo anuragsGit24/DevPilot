@@ -32,6 +32,8 @@ export function UserStoriesPage() {
   const [editingStory, setEditingStory] = useState<UserStory | null>(null);
   const [genModalOpen, setGenModalOpen] = useState(false);
   const [selectedReqIds, setSelectedReqIds] = useState<string[]>([]);
+  const selectedRequirementCount = requirements.filter((req) => selectedReqIds.includes(req.id)).length;
+  const allRequirementsSelected = requirements.length > 0 && selectedRequirementCount === requirements.length;
 
   const filteredStories = userStories.filter((s) => {
     const searchLower = search.toLowerCase();
@@ -393,6 +395,19 @@ export function UserStoriesPage() {
           </>
         }
       >
+        <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-200">
+          <span className="text-xs text-slate-500" aria-live="polite">
+            {selectedRequirementCount} of {requirements.length} selected
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={requirements.length === 0 || isProcessing.generateStories}
+            onClick={() => setSelectedReqIds(allRequirementsSelected ? [] : requirements.map((req) => req.id))}
+          >
+            {allRequirementsSelected ? 'Clear selection' : 'Select all'}
+          </Button>
+        </div>
         <div className="space-y-3 max-h-96 overflow-y-auto">
           {requirements.map((req) => (
             <label
@@ -405,9 +420,10 @@ export function UserStoriesPage() {
                 type="checkbox"
                 className="mt-1 rounded text-blue-600 focus:ring-blue-500"
                 checked={selectedReqIds.includes(req.id)}
+                disabled={isProcessing.generateStories}
                 onChange={(e) => {
-                  if (e.target.checked) setSelectedReqIds([...selectedReqIds, req.id]);
-                  else setSelectedReqIds(selectedReqIds.filter((id) => id !== req.id));
+                  if (e.target.checked) setSelectedReqIds((previous) => [...previous, req.id]);
+                  else setSelectedReqIds((previous) => previous.filter((id) => id !== req.id));
                 }}
               />
               <div className="flex-1">
